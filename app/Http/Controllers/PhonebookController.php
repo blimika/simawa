@@ -70,4 +70,24 @@ class PhonebookController extends Controller
         $phonebook->delete();
         return redirect()->route('phonebook.index')->with('success', 'Kontak berhasil dihapus.');
     }
+    public function update(Request $request, $id)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'number' => 'required|string|max:255',
+            'category' => 'nullable|string|max:255', // Tambahkan validasi untuk kategori
+        ]);
+
+        $phonebook = \App\Models\Phonebook::findOrFail($id);
+
+        $cleanNumber = preg_replace('/[^0-9]/', '', $request->number);
+
+        $phonebook->update([
+            'name' => $request->name,
+            'number' => $cleanNumber,
+            'category' => $request->category, // Simpan inputan kategori
+        ]);
+
+        return back()->with('success', 'Data kontak berhasil diperbarui!');
+    }
 }

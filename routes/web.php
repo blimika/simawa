@@ -67,8 +67,11 @@ Route::middleware(['auth', 'active.user'])->group(function () {
     // --- AKSES SEMUA (Superadmin, Admin, Agent) ---
     Route::middleware(['role:superadmin,admin,agent'])->group(function () {
         // Phonebook & Messages
+        Route::put('phonebook/{id}', [App\Http\Controllers\PhonebookController::class, 'update'])->name('phonebook.update');
         Route::resource('phonebook', App\Http\Controllers\PhonebookController::class)->except(['show', 'edit', 'update']);
         Route::post('messages/{ticket}/close', [MessageController::class, 'closeTicket'])->name('messages.close');
+        Route::post('messages/{ticket}/tag', [App\Http\Controllers\MessageController::class, 'updateTag'])->name('messages.update_tag');
+        Route::post('messages/{ticket}/start', [App\Http\Controllers\MessageController::class, 'startService'])->name('messages.start');
         Route::resource('messages', MessageController::class)->only(['index', 'store']);
         // Fitur Broadcast
         Route::get('broadcast', [BroadcastController::class, 'create'])->name('broadcast.create');

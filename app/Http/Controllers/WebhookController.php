@@ -189,7 +189,27 @@ class WebhookController extends Controller
                 \Log::error("Gagal mengirim Auto-Reply Greeting ke nomor: " . $senderNumber);
             }
         }
+        // ====================================================================
+        // --- FITUR: FORWARD WEBHOOK GOWA KE SERVER LAIN (PROXY) ---
+        // ====================================================================
+        // Mengecek apakah device ini memiliki isian webhook_url di database
+        if (!empty($device->webhook_url)) {
+            try {
+                // Meneruskan data mentah ($data) JSON persis seperti aslinya
+                Http::timeout(5)
+                    ->withHeaders([
+                        'Content-Type' => 'application/json',
+                        'X-Forwarded-By' => 'SIMAWA-PROXY'
+                    ])
+                    ->post($device->webhook_url, $data);
 
-        return response()->json(['status' => 'success', 'message' => 'Proses selesai']);
+            } catch (\Exception $e) {
+                // Catat error jika server tujuan mati/lambat agar Live Chat tetap aman
+                \Log::error("SIMAWA Forwarding Webhook Gagal ke [{$device->webhook_url}]. Error: " . $e->getMessage());
+            }
+        }
+
+        // Response akhir untuk dikembalikan ke GOWA
+        return response()->json(['status' => 'success', 'message' => 'Proses SIMAWA dan Forwarding selesai']);
     }
 }

@@ -2,17 +2,19 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Message;
-use App\Models\Device;
-use App\Models\Phonebook;
-use App\Models\Ticket; // <-- Tambahkan ini
-use App\Services\GowaService;
-use Illuminate\Support\Str;
 use Illuminate\Http\Request;
+use App\Models\Device;
+use App\Models\Message;
+use App\Models\Ticket;
+use App\Models\Phonebook;
+use App\Services\GowaService;
 
 class MessageController extends Controller
 {
-    public function index(Request $request)
+    /**
+     * MENAMPILKAN HALAMAN UTAMA LIVE CHAT
+     */
+    public function index(Request $request, GowaService $gowa)
     {
         $user = auth()->user();
 
@@ -49,10 +51,7 @@ class MessageController extends Controller
         // Eksekusi query untuk daftar tiket (kiri)
         $tickets = $ticketsQuery->orderBy('updated_at', 'desc')->get();
 
-        // =========================================================
         // 4. INISIALISASI DEFAULT UNTUK AREA RUANG CHAT (KANAN)
-        // (Ini yang sebelumnya terhapus sehingga memicu ErrorException)
-        // =========================================================
         $activeTicket = null;
         $messages = [];
         $contactName = 'Pelanggan Baru';
@@ -61,18 +60,9 @@ class MessageController extends Controller
         if ($request->has('ticket_id')) {
             $activeTicket = Ticket::findOrFail($request->ticket_id);
 
-            // JIKA ADA PESAN BARU, HAPUS TANDANYA KARENA SEKARANG SEDANG DIBACA
+            // Hapus tanda pesan baru karena sedang dibaca (Preview)
             if ($activeTicket->has_new_message) {
                 $activeTicket->update(['has_new_message' => false]);
-            }
-
-            // Logika klaim tiket HANYA berlaku jika tiket tersebut berstatus 'open'
-            if ($activeTicket->status === 'open') {
-                if (is_null($activeTicket->agent_id)) {
-                    $activeTicket->update(['agent_id' => $user->id]);
-                } elseif ($activeTicket->agent_id !== $user->id && !$user->isSuperadmin()) {
-                    return redirect()->route('messages.index')->with('error', 'Tiket sudah ditangani agen lain.');
-                }
             }
 
             // Ambil riwayat chat untuk tiket yang sedang aktif
@@ -81,14 +71,11 @@ class MessageController extends Controller
                         ->orderBy('created_at', 'asc')
                         ->get();
 
-            // Ubah nama di header chat jika nomor ada di Phonebook
+            // Ubah nama di header chat
             $phonebook = $contacts->firstWhere('number', $activeTicket->number);
-
             if ($phonebook) {
-                // Prioritas 1: Nama dari Buku Telepon (Kontak tersimpan)
                 $contactName = $phonebook->name;
             } else {
-                // Prioritas 2: Nama dari Profil WA, jika kosong baru tampil 'Pelanggan Baru'
                 $contactName = $activeTicket->customer_name ?: 'Pelanggan Baru';
             }
         }
@@ -97,42 +84,41 @@ class MessageController extends Controller
         return view('messages.index', compact('devices', 'tickets', 'activeTicket', 'messages', 'contactName', 'contacts'));
     }
 
+    /**
+     * MENGIRIM PESAN (BALASAN AGEN) KE PELANGGAN
+     */
     public function store(Request $request, GowaService $gowa)
     {
         $request->validate([
-            'device_id' => 'required|exists:devices,id',
-            'number' => 'required|string',
-            'message' => 'required|string',
+            'device_id' => 'required',
+            'number' => 'required',
+            'message' => 'required'
         ]);
 
         $device = Device::findOrFail($request->device_id);
-        $rawNumbers = preg_split('/[\s,]+/', $request->number, -1, PREG_SPLIT_NO_EMPTY);
+
+        // Memecah input nomor jika agen mengirim ke banyak nomor sekaligus (dipisah koma)
+        $numbers = array_map('trim', explode(',', $request->number));
+
+        // Ambil nama agen yang sedang login
+        $agentName = auth()->user()->name;
+
+        // Menyisipkan nama agen di akhir pesan (Signature Agen)
+        $messageToSend = $request->message . "\n\n*({$agentName})*";
+
         $successCount = 0;
 
-        foreach ($rawNumbers as $rawNumber) {
-            $targetNumber = preg_replace('/[^0-9]/', '', $rawNumber);
-            if (substr($targetNumber, 0, 1) == '0') {
-                $targetNumber = '62' . substr($targetNumber, 1);
-            }
-
+        foreach ($numbers as $targetNumber) {
             if (empty($targetNumber)) continue;
 
+            // Kirim pesan melalui GOWA
             $response = $gowa->sendMessage(
                 $device->gowa_session_id,
                 $targetNumber,
-                $request->message
+                $messageToSend
             );
 
             if ($response->successful()) {
-                Message::create([
-                    'device_id' => $device->id,
-                    'user_id' => auth()->id(),
-                    'number' => $targetNumber,
-                    'message' => $request->message,
-                    'direction' => 'out',
-                    'status' => 'sent',
-                ]);
-
                 // CEK APAKAH TIKET YANG MASIH OPEN SUDAH ADA
                 $ticket = Ticket::where('device_id', $device->id)
                             ->where('number', $targetNumber)
@@ -140,13 +126,13 @@ class MessageController extends Controller
                             ->first();
 
                 if (!$ticket) {
-                    // Jika agen membalas pada pelanggan yang tidak memiliki tiket aktif (atau tiket lamanya closed)
-                    // Buatkan tiket OPEN baru dan langsung assign ke agen ini
+                    // Buatkan tiket OPEN baru dan langsung assign ke agen ini (Bila tiket lamanya closed)
                     Ticket::create([
                         'ticket_number' => 'LYN-' . date('ymd') . '-' . strtoupper(\Illuminate\Support\Str::random(4)),
                         'device_id' => $device->id,
                         'number' => $targetNumber,
                         'agent_id' => auth()->id(),
+                        'tag' => 'umum',
                         'status' => 'open',
                         'has_new_message' => false
                     ]);
@@ -155,21 +141,30 @@ class MessageController extends Controller
                     $ticket->touch();
                 }
 
-                $successCount++;
-            }
+                // Simpan ke tabel messages
+                Message::create([
+                    'device_id' => $device->id,
+                    'user_id' => auth()->id(),
+                    'number' => $targetNumber,
+                    'message' => $messageToSend,
+                    'direction' => 'out',
+                    'status' => 'sent',
+                ]);
 
-            if (count($rawNumbers) > 1) {
-                usleep(1000000);
+                $successCount++;
             }
         }
 
         if ($successCount > 0) {
-            return back()->with('success', "Pesan terkirim!");
+            return back()->with('success', "Pesan berhasil dikirim.");
         }
 
-        return back()->with('error', "Gagal mengirim pesan.");
+        return back()->with('error', 'Gagal mengirim pesan. Pastikan device WA Anda terhubung.');
     }
-    // NAMA FUNGSI DIUBAH MENJADI closeTicket SESUAI DENGAN ROUTE ANDA
+
+    /**
+     * MENANDAI TIKET SELESAI (CLOSED) & AUTO-REPLY PENUTUP
+     */
     public function closeTicket(Request $request, Ticket $ticket, GowaService $gowa)
     {
         // Pastikan hanya tiket yang masih open yang diproses
@@ -181,10 +176,18 @@ class MessageController extends Controller
             // 2. Siapkan Pesan Penutup (Otomatis mengambil nama device dari relasi)
             $device = $ticket->device;
             $deviceName = $device ? $device->name : 'SIMAWA';
-            $closingMessage = "Terimakasih sudah menggunakan Layanan {$deviceName}.";
+            $customerName = $ticket->customer_name ? $ticket->customer_name : 'Bapak/Ibu';
+            $ticketNumber = $ticket->ticket_number;
+
+            $closingMessage =   "Terima kasih Bapak/Ibu {$customerName}.\n"
+                              . "Nomor tiket {$ticketNumber} telah kami tandai selesai.\n\n"
+                              . "Semoga informasi/layanan yang diberikan bermanfaat.\n"
+                              . "Apabila Bapak/Ibu {$customerName} membutuhkan layanan kembali, "
+                              . "silakan mengirim pesan baru melalui WhatsApp ini.\n\n"
+                              . "Salam hangat,\n"
+                              . "Tim Layanan WhatsApp {$deviceName}.";
 
             // 3. Kirim Pesan via API GOWA
-            // Pastikan device ditemukan dan memiliki gowa_session_id
             if ($device) {
                 $response = $gowa->sendMessage(
                     $device->gowa_session_id,
@@ -210,4 +213,62 @@ class MessageController extends Controller
 
         return back()->with('error', 'Tiket sudah dalam keadaan tertutup.');
     }
+
+    /**
+     * MENGUBAH KATEGORI / TAG PADA TIKET
+     */
+    public function updateTag(Request $request, Ticket $ticket)
+    {
+        $request->validate([
+            'tag' => 'required|string'
+        ]);
+
+        $ticket->update(['tag' => $request->tag]);
+
+        return back()->with('success', 'Tag kategori tiket berhasil diubah!');
+    }
+    /**
+     * AGEN MEMULAI LAYANAN (MENGKLAIM TIKET)
+     */
+    public function startService(Request $request, Ticket $ticket, GowaService $gowa)
+    {
+        $user = auth()->user();
+
+        if ($ticket->status !== 'open') {
+            return back()->with('error', 'Tiket sudah ditutup.');
+        }
+
+        if (!is_null($ticket->agent_id)) {
+            return back()->with('error', 'Maaf, tiket ini baru saja diambil oleh agen lain.');
+        }
+
+        // 1. Klaim tiket ke agen yang mengeklik
+        $ticket->update(['agent_id' => $user->id]);
+
+        // 2. Siapkan pesan otomatis
+        $claimMessage = "Permintaan/tiket Bapak/Ibu saat ini sedang dilayani oleh Operator Kami *({$user->name})*.";
+
+        // 3. Kirim pesan notifikasi ke pelanggan via GOWA
+        if ($ticket->device) {
+            $response = $gowa->sendMessage(
+                $ticket->device->gowa_session_id,
+                $ticket->number,
+                $claimMessage
+            );
+
+            if ($response->successful()) {
+                Message::create([
+                    'device_id' => $ticket->device_id,
+                    'user_id' => $user->id,
+                    'number' => $ticket->number,
+                    'message' => $claimMessage,
+                    'direction' => 'out',
+                    'status' => 'sent',
+                ]);
+            }
+        }
+
+        return back()->with('success', 'Tiket berhasil diambil. Anda sudah bisa membalas pesan pelanggan.');
+    }
 }
+
