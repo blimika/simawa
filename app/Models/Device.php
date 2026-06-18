@@ -7,9 +7,13 @@ use Illuminate\Database\Eloquent\Model;
 class Device extends Model
 {
     protected $fillable = [
-        'user_id', 'name', 'phone_number', 'gowa_session_id', 'status', 'webhook_url'
+        'user_id', 'name', 'phone_number', 'gowa_session_id', 'status', 'webhook_url', 'is_livechat_enabled'
     ];
 
+    // Tambahkan baris ini agar selalu dibaca sebagai true/false
+    protected $casts = [
+        'is_livechat_enabled' => 'boolean',
+    ];
     // Admin pemilik device ini
     public function owner()
     {

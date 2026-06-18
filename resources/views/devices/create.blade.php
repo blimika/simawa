@@ -43,7 +43,18 @@
                             <p class="text-xs text-gray-500 mt-1">Kosongkan jika device ini hanya dipakai untuk Live Chat SIMAWA.</p>
                             <x-input-error class="mt-2" :messages="$errors->get('webhook_url')" />
                         </div>
-
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700">Mode Layanan Device</label>
+                            <select name="is_livechat_enabled" class="mt-1 w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm">
+                                <option value="1" {{ (isset($device) && $device->is_livechat_enabled == 1) || !isset($device) ? 'selected' : '' }}>
+                                    Aktifkan Live Chat & Webhook
+                                </option>
+                                <option value="0" {{ isset($device) && $device->is_livechat_enabled == 0 ? 'selected' : '' }}>
+                                    Hanya Forward Webhook Saja
+                                </option>
+                            </select>
+                            <p class="text-[10px] text-gray-500 mt-1">Jika diset "Hanya Forward", pesan tidak akan masuk ke menu Live Chat SIMAWA.</p>
+                        </div>
                         <div class="flex items-center gap-4 mt-6">
                             <x-primary-button>Simpan Device</x-primary-button>
                             <a href="{{ route('devices.index') }}" class="text-gray-600 hover:text-gray-900 text-sm">Batal</a>

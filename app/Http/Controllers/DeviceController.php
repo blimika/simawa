@@ -51,6 +51,7 @@ class DeviceController extends Controller
             'phone_number'    => 'required|string|max:20',
             'gowa_session_id' => 'required|string|unique:devices,gowa_session_id|alpha_dash',
             'webhook_url'     => 'nullable|url',
+            'is_livechat_enabled' => 'required|boolean',
         ]);
 
         // 1. Tembak API GOWA untuk meregistrasikan device_id
@@ -70,6 +71,7 @@ class DeviceController extends Controller
             'phone_number'    => $request->phone_number,
             'gowa_session_id' => $request->gowa_session_id,
             'webhook_url'     => $request->webhook_url,
+            'is_livechat_enabled' => $request->is_livechat_enabled,
             'status'          => 'pending', // <--- Paksa menjadi pending untuk device baru
         ]);
 
@@ -87,17 +89,45 @@ class DeviceController extends Controller
     /**
      * Show the form for editing the specified resource.
      */
-    public function edit(string $id)
+   /**
+     * MENAMPILKAN HALAMAN EDIT DEVICE
+     */
+    public function edit(Device $device)
     {
-        //
+        // Kebijakan keamanan tambahan (Opsional):
+        // Memastikan admin biasa hanya bisa mengedit device miliknya sendiri
+        if (!auth()->user()->isSuperadmin() && $device->user_id !== auth()->id()) {
+            abort(403, 'Anda tidak memiliki akses untuk mengedit device ini.');
+        }
+
+        return view('devices.edit', compact('device'));
     }
 
     /**
-     * Update the specified resource in storage.
+     * MENYIMPAN PERUBAHAN DATA DEVICE
      */
-    public function update(Request $request, string $id)
+    public function update(Request $request, Device $device)
     {
-        //
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'phone_number' => 'required|string|max:255',
+            'gowa_session_id' => 'required|string|max:255',
+            'webhook_url' => 'nullable|url|max:255',
+            'is_livechat_enabled' => 'required|boolean',
+        ]);
+
+        // Bersihkan nomor HP dari karakter non-angka
+        $cleanNumber = preg_replace('/[^0-9]/', '', $request->phone_number);
+
+        $device->update([
+            'name' => $request->name,
+            'phone_number' => $cleanNumber,
+            'gowa_session_id' => $request->gowa_session_id,
+            'webhook_url' => $request->webhook_url,
+            'is_livechat_enabled' => $request->is_livechat_enabled,
+        ]);
+
+        return redirect()->route('devices.index')->with('success', 'Data device berhasil diperbarui!');
     }
 
     /**

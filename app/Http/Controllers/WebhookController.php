@@ -81,115 +81,128 @@ class WebhookController extends Controller
             'message' => $text ?: ($mediaPath ? '[File Media]' : null),
             'payload' => json_encode($data)
         ]);
+        // ====================================================================
+        // CEK MODE LAYANAN: APAKAH LIVE CHAT DIAKTIFKAN UNTUK DEVICE INI?
+        // ====================================================================
+        if ($device->is_livechat_enabled) {
+            /*
+            if ((empty($text) && empty($mediaPath)) || $isFromMe || Str::contains($rawFrom, '@g.us')) {
+                return response()->json(['status' => 'ignored', 'reason' => 'Pesan dari diri sendiri, grup, atau kosong']);
+            } */
 
-        // 6. Validasi Pesan (Abaikan jika dari diri sendiri atau grup)
-        if ((empty($text) && empty($mediaPath)) || $isFromMe || Str::contains($rawFrom, '@g.us')) {
-            return response()->json(['status' => 'ignored', 'reason' => 'Pesan dari diri sendiri, grup, atau kosong']);
-        }
-
-        // --- DOWNLOAD MEDIA KE SERVER SIMAWA ---
-        $finalMediaUrl = null;
-        if (!empty($mediaPath)) {
-            try {
-                $gowaBaseUrl = env('GOWA_API_URL', 'http://localhost:5271');
-                $cleanPath = str_replace('\\', '/', $mediaPath);
-                $downloadUrl = rtrim($gowaBaseUrl, '/') . '/' . ltrim($cleanPath, '/');
-
-                $gowaUser = env('GOWA_BASIC_USER', 'kota');
-                $gowaPass = env('GOWA_BASIC_PASS', 'kota');
-
-                $response = Http::withBasicAuth($gowaUser, $gowaPass)->get($downloadUrl);
-
-                if ($response->successful()) {
-                    $extension = pathinfo($cleanPath, PATHINFO_EXTENSION) ?: 'bin';
-                    $filename = 'media_' . time() . '_' . Str::random(5) . '.' . strtolower($extension);
-
-                    Storage::disk('public')->put('received_media/' . $filename, $response->body());
-                    $finalMediaUrl = 'received_media/' . $filename;
-                } else {
-                    $finalMediaUrl = $mediaPath;
-                }
-            } catch (\Exception $e) {
-                $finalMediaUrl = $mediaPath;
+            // 6. Validasi Pesan (Abaikan jika dari diri sendiri atau grup)
+            if ((empty($text) && empty($mediaPath)) || $isFromMe || Str::contains($rawFrom, '@g.us')) {
+                // Return di sini kita hilangkan agar lanjut ke Webhook Forwarding di bawah
+                $skipLiveChat = true;
+            } else {
+                $skipLiveChat = false;
             }
-        }
 
-        // 7. Simpan sebagai Pesan Masuk (Pesan dari Pelanggan)
-        Message::create([
-            'device_id' => $device->id,
-            'user_id' => null,
-            'number' => $senderNumber,
-            'message' => $text,
-            'quoted_message' => $quotedBody, // SIMPAN KUTIPAN DI SINI
-            'direction' => 'in',
-            'status' => 'received',
-            'media_url' => $finalMediaUrl
-        ]);
+            if (!$skipLiveChat) {
+                // --- DOWNLOAD MEDIA KE SERVER SIMAWA ---
+                $finalMediaUrl = null;
+                if (!empty($mediaPath)) {
+                    try {
+                        $gowaBaseUrl = env('GOWA_API_URL', 'http://localhost:5271');
+                        $cleanPath = str_replace('\\', '/', $mediaPath);
+                        $downloadUrl = rtrim($gowaBaseUrl, '/') . '/' . ltrim($cleanPath, '/');
 
-        // 8. UPDATE ATAU BUAT TIKET LIVE CHAT
-        // Cari HANYA tiket yang statusnya masih OPEN
-        $ticket = Ticket::where('device_id', $device->id)
-                    ->where('number', $senderNumber)
-                    ->where('status', 'open')
-                    ->first();
+                        $gowaUser = env('GOWA_BASIC_USER', 'kota');
+                        $gowaPass = env('GOWA_BASIC_PASS', 'kota');
 
-        if ($ticket) {
-            // Jika masih ada tiket open, cukup tandai ada pesan baru
-            $ticket->update([
-                'has_new_message' => true,
-                'customer_name' => $fromName
-            ]);
-        } else {
-            // =============================================================
-            // KONDISI: TIKET BARU / TIKET SEBELUMNYA SUDAH CLOSED
-            // =============================================================
+                        $response = Http::withBasicAuth($gowaUser, $gowaPass)->get($downloadUrl);
 
-            // Buat variabel pendukung pesan pembuka
-            $ticketNumber = 'LYN-' . date('ymd') . '-' . strtoupper(Str::random(4));
-            $customerName = $fromName ?: 'Bapak/Ibu';
-            $deviceName = $device->name ?: 'SIMAWA';
+                        if ($response->successful()) {
+                            $extension = pathinfo($cleanPath, PATHINFO_EXTENSION) ?: 'bin';
+                            $filename = 'media_' . time() . '_' . Str::random(5) . '.' . strtolower($extension);
 
-            // A. Buat Tiket Baru yang bersih (Fresh) di database
-            Ticket::create([
-                'ticket_number' => $ticketNumber,
-                'device_id' => $device->id,
-                'number' => $senderNumber,
-                'customer_name' => $fromName,
-                'agent_id' => null, // Bebas untuk diambil agen lain
-                'status' => 'open',
-                'has_new_message' => true
-            ]);
+                            Storage::disk('public')->put('received_media/' . $filename, $response->body());
+                            $finalMediaUrl = 'received_media/' . $filename;
+                        } else {
+                            $finalMediaUrl = $mediaPath;
+                        }
+                    } catch (\Exception $e) {
+                        $finalMediaUrl = $mediaPath;
+                    }
+                }
 
-            // B. Rangkai Teks Pesan Pembuka Otomatis Sesuai Request
-            $greetingMessage = "Halo Bapak/Ibu {$customerName},\n"
-                             . "Terima kasih telah menghubungi layanan WhatsApp {$deviceName}.\n\n"
-                             . "Pesan Bapak/Ibu telah kami terima dengan\n"
-                             . "nomor tiket: {$ticketNumber}.\n\n"
-                             . "Operator kami akan menindaklanjuti pesan Bapak/Ibu pada jam layanan.\n\n"
-                             . "Terima kasih.";
-
-            // C. Kirim Pesan Pembuka ke WhatsApp Pelanggan via GOWA
-            $sendGreeting = $gowa->sendMessage(
-                $device->gowa_session_id,
-                $senderNumber,
-                $greetingMessage
-            );
-
-            // D. Jika Pesan Pembuka Sukses Terkirim, Catat ke Tabel Messages
-            if ($sendGreeting->successful()) {
+                // 7. Simpan sebagai Pesan Masuk (Pesan dari Pelanggan)
                 Message::create([
                     'device_id' => $device->id,
-                    'user_id' => null, // null karena bot/sistem yang mengirim
+                    'user_id' => null,
                     'number' => $senderNumber,
-                    'message' => $greetingMessage,
-                    'direction' => 'out', // Arah keluar
-                    'status' => 'sent',
+                    'message' => $text,
+                    'quoted_message' => $quotedBody, // SIMPAN KUTIPAN DI SINI
+                    'direction' => 'in',
+                    'status' => 'received',
+                    'media_url' => $finalMediaUrl
                 ]);
-            } else {
-                \Log::error("Gagal mengirim Auto-Reply Greeting ke nomor: " . $senderNumber);
+
+                // 8. UPDATE ATAU BUAT TIKET LIVE CHAT
+                // Cari HANYA tiket yang statusnya masih OPEN
+                $ticket = Ticket::where('device_id', $device->id)
+                            ->where('number', $senderNumber)
+                            ->where('status', 'open')
+                            ->first();
+
+                if ($ticket) {
+                    // Jika masih ada tiket open, cukup tandai ada pesan baru
+                    $ticket->update([
+                        'has_new_message' => true,
+                        'customer_name' => $fromName
+                    ]);
+                } else {
+                    // =============================================================
+                    // KONDISI: TIKET BARU / TIKET SEBELUMNYA SUDAH CLOSED
+                    // =============================================================
+
+                    // Buat variabel pendukung pesan pembuka
+                    $ticketNumber = 'LYN-' . date('ymd') . '-' . strtoupper(Str::random(4));
+                    $customerName = $fromName ?: 'Bapak/Ibu';
+                    $deviceName = $device->name ?: 'SIMAWA';
+
+                    // A. Buat Tiket Baru yang bersih (Fresh) di database
+                    Ticket::create([
+                        'ticket_number' => $ticketNumber,
+                        'device_id' => $device->id,
+                        'number' => $senderNumber,
+                        'customer_name' => $fromName,
+                        'agent_id' => null, // Bebas untuk diambil agen lain
+                        'status' => 'open',
+                        'has_new_message' => true
+                    ]);
+
+                    // B. Rangkai Teks Pesan Pembuka Otomatis Sesuai Request
+                    $greetingMessage = "Halo Bapak/Ibu {$customerName},\n"
+                                    . "Terima kasih telah menghubungi layanan WhatsApp {$deviceName}.\n\n"
+                                    . "Pesan Bapak/Ibu telah kami terima dengan\n"
+                                    . "nomor tiket: {$ticketNumber}.\n\n"
+                                    . "Operator kami akan menindaklanjuti pesan Bapak/Ibu pada jam layanan.\n\n"
+                                    . "Terima kasih.";
+
+                    // C. Kirim Pesan Pembuka ke WhatsApp Pelanggan via GOWA
+                    $sendGreeting = $gowa->sendMessage(
+                        $device->gowa_session_id,
+                        $senderNumber,
+                        $greetingMessage
+                    );
+
+                    // D. Jika Pesan Pembuka Sukses Terkirim, Catat ke Tabel Messages
+                    if ($sendGreeting->successful()) {
+                        Message::create([
+                            'device_id' => $device->id,
+                            'user_id' => null, // null karena bot/sistem yang mengirim
+                            'number' => $senderNumber,
+                            'message' => $greetingMessage,
+                            'direction' => 'out', // Arah keluar
+                            'status' => 'sent',
+                        ]);
+                    } else {
+                        \Log::error("Gagal mengirim Auto-Reply Greeting ke nomor: " . $senderNumber);
+                    }
+                }
             }
-        }
-        // ====================================================================
+        }        // ====================================================================
         // --- FITUR: FORWARD WEBHOOK GOWA KE SERVER LAIN (PROXY) ---
         // ====================================================================
         // Mengecek apakah device ini memiliki isian webhook_url di database

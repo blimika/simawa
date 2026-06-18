@@ -53,6 +53,8 @@ Route::middleware(['auth', 'active.user'])->group(function () {
     });
     // --- AKSES SUPERADMIN & ADMIN ---
     Route::middleware(['role:superadmin,admin'])->group(function () {        // Manage Devices
+        Route::get('devices/{device}/edit', [App\Http\Controllers\DeviceController::class, 'edit'])->name('devices.edit');
+        Route::put('devices/{device}', [App\Http\Controllers\DeviceController::class, 'update'])->name('devices.update');
         Route::get('/devices/{device}/scan', [DeviceController::class, 'scan'])->name('devices.scan');
         Route::post('/devices/{device}/request-qr', [DeviceController::class, 'requestQr'])->name('devices.request_qr');
         Route::get('/devices/{device}/status-json', [DeviceController::class, 'statusJson'])->name('devices.status_json');
