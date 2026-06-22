@@ -182,9 +182,8 @@ class DeviceController extends Controller
         return view('devices.scan', compact('device'));
     }
 
-    public function requestQr(Device $device, GowaService $gowa)
+    public function requestQr(Device $device, \App\Services\GowaService $gowa)
     {
-        // Izinkan akses JIKA dia adalah Super Admin ATAU dia adalah pemilik device
         if (!auth()->user()->isSuperadmin() && $device->user_id !== auth()->id()) {
             return response()->json(['error' => 'Unauthorized'], 403);
         }
@@ -192,7 +191,29 @@ class DeviceController extends Controller
         // Panggil service GOWA
         $gowaResponse = $gowa->getLoginCode($device->gowa_session_id);
 
-        // Kirimkan balikan ke frontend dengan key 'data'
+        // =========================================================================
+        // TRIK ANTI MIXED-CONTENT: Ubah semua URL HTTP gambar menjadi Base64
+        // =========================================================================
+        if (is_array($gowaResponse)) {
+            array_walk_recursive($gowaResponse, function(&$value, $key) {
+                // Jika value berupa teks, berawalan http://, dan berakhiran .png
+                if (is_string($value) && str_starts_with($value, 'http://') && str_ends_with(strtolower($value), '.png')) {
+                    try {
+                        // Download gambar secara diam-diam via backend Laravel
+                        $imageResponse = \Illuminate\Support\Facades\Http::timeout(10)->get($value);
+                        
+                        if ($imageResponse->successful()) {
+                            // Timpa URL dengan teks Base64 (Format Data URI)
+                            $value = 'data:image/png;base64,' . base64_encode($imageResponse->body());
+                        }
+                    } catch (\Exception $e) {
+                        // Abaikan jika gagal, biarkan URL aslinya
+                    }
+                }
+            });
+        }
+
+        // Kirimkan balikan ke frontend
         return response()->json([
             'status' => 'success',
             'data'   => $gowaResponse

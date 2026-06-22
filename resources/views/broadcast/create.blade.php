@@ -35,8 +35,10 @@
                             <label class="block text-sm font-bold text-gray-700 mb-2">1. Pilih Device Pengirim</label>
                             <select name="device_id" class="w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500" required>
                                 <option value="">-- Pilih Device Terkoneksi --</option>
-                                @foreach($devices as $dev)
-                                    <option value="{{ $dev->id }}">{{ $dev->name }} ({{ $dev->number }})</option>
+                                @foreach($devices as $device)
+                                    <option value="{{ $device->id }}">
+                                        {{ $device->name }} ({{ $device->phone_number ?? 'Nomor belum diset' }})
+                                    </option>
                                 @endforeach
                             </select>
                         </div>

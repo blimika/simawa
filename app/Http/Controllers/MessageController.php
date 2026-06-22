@@ -87,120 +87,116 @@ class MessageController extends Controller
     /**
      * MENGIRIM PESAN (BALASAN AGEN) KE PELANGGAN
      */
-    /**
-     * MENGIRIM PESAN (BALASAN AGEN) KE PELANGGAN
-     */
-    public function store(Request $request, GowaService $gowa)
+    public function store(Request $request, \App\Services\GowaService $gowa)
     {
         $request->validate([
             'device_id' => 'required',
             'number' => 'required',
-            'message' => 'nullable|string', // Boleh kosong jika hanya mengirim gambar/dokumen
-            'file' => 'nullable|file|max:50000', // Maksimal file 50MB
+            'message' => 'nullable|string', 
+            'file' => 'nullable|file|max:50000', 
         ]);
 
-        // Validasi: Minimal harus ada teks pesan ATAU file lampiran
         if (empty($request->message) && !$request->hasFile('file')) {
             return back()->with('error', 'Pesan atau lampiran tidak boleh kosong.');
         }
 
-        $device = Device::findOrFail($request->device_id);
+        $device = \App\Models\Device::findOrFail($request->device_id);
         $numbers = array_map('trim', explode(',', $request->number));
         $agentName = auth()->user()->name;
 
-        // Menyisipkan nama agen di akhir pesan teks / caption
         $baseMessage = $request->message ?? '';
         $messageToSend = $baseMessage ? $baseMessage . "\n\n*({$agentName})*" : "*({$agentName})*";
 
-        // Siapkan variabel untuk file upload
         $fileContents = null;
         $fileName = null;
         $mediaUrl = null;
 
-        // Jika ada file yang diunggah dari form Live Chat
         if ($request->hasFile('file')) {
             $uploadedFile = $request->file('file');
             $fileContents = file_get_contents($uploadedFile->getRealPath());
             $fileName = $uploadedFile->getClientOriginalName();
-
-            // Simpan file secara lokal agar bisa dilihat di riwayat Live Chat
-            $mediaPath = $uploadedFile->store('sent_media', 'public');
-            $mediaUrl = $mediaPath;
+            $mediaUrl = $uploadedFile->store('sent_media', 'public');
         }
 
         $successCount = 0;
+        $lastError = ''; // Menampung error asli dari server GOWA
 
         foreach ($numbers as $targetNumber) {
             if (empty($targetNumber)) continue;
 
-            // Format nomor agar sesuai dengan standar API GOWA
-            $formattedPhone = str_contains($targetNumber, '@') ? $targetNumber : $targetNumber . '@s.whatsapp.net';
-
-            // Kirim via GOWA Service (Tentukan pakai sendFile atau sendMessage)
-            if ($fileContents) {
-                //$response = $gowa->sendFile($device->gowa_session_id, $formattedPhone, $fileContents, $fileName, $messageToSend);
-                // Mengecek apakah file tersebut gambar berdasarkan ekstensinya
-                $extension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
-                $imageExtensions = ['jpg', 'jpeg', 'png', 'webp'];
-
-                if (in_array($extension, $imageExtensions)) {
-                    // Eksekusi API Image (Bisa ditambah opsi kompresi jika mau)
-                    $response = $gowa->sendImage(
-                        $device->gowa_session_id,
-                        $formattedPhone,
-                        $fileContents,
-                        $fileName,
-                        $messageToSend,
-                        ['compress' => true] // Mengaktifkan fitur kompresi bawaan GOWA
-                    );
-                } else {
-                    // Eksekusi API Document/File biasa
-                    $response = $gowa->sendFile(
-                        $device->gowa_session_id,
-                        $formattedPhone,
-                        $fileContents,
-                        $fileName,
-                        $messageToSend
-                    );
-                }
-            } else {
-                $response = $gowa->sendMessage($device->gowa_session_id, $formattedPhone, $messageToSend);
+            // =======================================================
+            // 1. AUTO-FORMATTER NOMOR WHATSAPP (Sangat Penting)
+            // =======================================================
+            // Hilangkan semua karakter selain angka (spasi, strip, tanda +)
+            $cleanNumber = preg_replace('/[^0-9]/', '', $targetNumber);
+            
+            // Jika nomor diawali dengan angka 0, otomatis ganti menjadi 62
+            if (str_starts_with($cleanNumber, '0')) {
+                $cleanNumber = '62' . substr($cleanNumber, 1);
             }
 
-            if ($response && $response->successful()) {
+            // Format final untuk dikirim ke API GOWA
+            $formattedPhone = $cleanNumber . '@s.whatsapp.net';
 
-                // CEK APAKAH TIKET YANG MASIH OPEN SUDAH ADA
-                $ticket = Ticket::where('device_id', $device->id)
-                            ->where('number', $targetNumber)
-                            ->where('status', 'open')
-                            ->first();
-
-                if (!$ticket) {
-                    Ticket::create([
-                        'ticket_number' => 'LYN-' . date('ymd') . '-' . strtoupper(\Illuminate\Support\Str::random(4)),
-                        'device_id' => $device->id,
-                        'number' => $targetNumber,
-                        'agent_id' => auth()->id(),
-                        'tag' => 'umum',
-                        'status' => 'open',
-                        'has_new_message' => false
-                    ]);
+            try {
+                // =======================================================
+                // 2. PROSES PENGIRIMAN
+                // =======================================================
+                if ($fileContents) {
+                    $extension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+                    $imageExtensions = ['jpg', 'jpeg', 'png', 'webp'];
+                    
+                    if (in_array($extension, $imageExtensions)) {
+                        $response = $gowa->sendImage($device->gowa_session_id, $formattedPhone, $fileContents, $fileName, $messageToSend);
+                    } else {
+                        $response = $gowa->sendFile($device->gowa_session_id, $formattedPhone, $fileContents, $fileName, $messageToSend);
+                    }
                 } else {
-                    $ticket->touch();
+                    $response = $gowa->sendMessage($device->gowa_session_id, $formattedPhone, $messageToSend);
                 }
 
-                // Simpan ke tabel messages
-                Message::create([
-                    'device_id' => $device->id,
-                    'user_id' => auth()->id(),
-                    'number' => $targetNumber,
-                    'message' => $messageToSend,
-                    'media_url' => $mediaUrl, // Menyimpan path dokumen/gambar yang dikirim
-                    'direction' => 'out',
-                    'status' => 'sent',
-                ]);
+                // =======================================================
+                // 3. CEK HASIL RESPON DARI GOWA
+                // =======================================================
+                if ($response && $response->successful()) {
+                    
+                    // Simpan ke Tiket & Messages menggunakan nomor yang sudah bersih (62...)
+                    $ticket = \App\Models\Ticket::where('device_id', $device->id)
+                                ->where('number', $cleanNumber)
+                                ->where('status', 'open')
+                                ->first();
 
-                $successCount++;
+                    if (!$ticket) {
+                        \App\Models\Ticket::create([
+                            'ticket_number' => 'LYN-' . date('ymd') . '-' . strtoupper(\Illuminate\Support\Str::random(4)),
+                            'device_id' => $device->id,
+                            'number' => $cleanNumber,
+                            'agent_id' => auth()->id(),
+                            'tag' => 'umum',
+                            'status' => 'open',
+                            'has_new_message' => false
+                        ]);
+                    } else {
+                        $ticket->touch(); 
+                    }
+
+                    \App\Models\Message::create([
+                        'device_id' => $device->id,
+                        'user_id' => auth()->id(),
+                        'number' => $cleanNumber,
+                        'message' => $messageToSend,
+                        'media_url' => $mediaUrl,
+                        'direction' => 'out',
+                        'status' => 'sent',
+                    ]);
+
+                    $successCount++;
+                } else {
+                    // Jika gagal, tangkap dan terjemahkan apa alasan GOWA menolaknya
+                    $lastError = $response ? ($response->json('message') ?? $response->body()) : 'Server GOWA tidak memberikan respon';
+                }
+            } catch (\Exception $e) {
+                $lastError = $e->getMessage();
             }
         }
 
@@ -208,7 +204,8 @@ class MessageController extends Controller
             return back()->with('success', "Pesan berhasil dikirim.");
         }
 
-        return back()->with('error', 'Gagal mengirim pesan. Pastikan device WA Anda terhubung.');
+        // Tampilkan pesan error yang sesungguhnya ke layar Admin
+        return back()->with('error', 'Gagal mengirim pesan. GOWA membalas: ' . $lastError);
     }
 
     /**
