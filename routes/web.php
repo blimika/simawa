@@ -50,6 +50,7 @@ Route::middleware(['auth', 'active.user'])->group(function () {
     // --- KHUSUS SUPERADMIN ---
     Route::middleware(['role:superadmin'])->group(function () {
         Route::resource('admins', AdminController::class)->except(['show']);
+        Route::post('devices/sync', [App\Http\Controllers\DeviceController::class, 'syncDevices'])->name('devices.sync');
     });
     // --- AKSES SUPERADMIN & ADMIN ---
     Route::middleware(['role:superadmin,admin'])->group(function () {        // Manage Devices

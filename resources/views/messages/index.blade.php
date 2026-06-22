@@ -190,15 +190,23 @@
 
                                             @if($msg->media_url)
                                                 @php
-                                                    $isLocal = str_starts_with($msg->media_url, 'received_media/');
+                                                    // Tambahkan pengecekan untuk 'sent_media/' menggunakan operator OR (||)
+                                                    $isLocal = str_starts_with($msg->media_url, 'received_media/') || str_starts_with($msg->media_url, 'sent_media/');
 
                                                     if ($isLocal) {
                                                         $fullMediaUrl = asset('storage/' . $msg->media_url);
                                                         $extension = strtolower(pathinfo($msg->media_url, PATHINFO_EXTENSION));
                                                     } else {
-                                                        $gowaBaseUrl = env('GOWA_API_URL', 'http://localhost:5271');
-                                                        $cleanPath = str_replace('\\', '/', $msg->media_url);
-                                                        $fullMediaUrl = rtrim($gowaBaseUrl, '/') . '/' . ltrim($cleanPath, '/');
+                                                        // Cek apakah ini URL eksternal utuh (misal kiriman dari API Gateway)
+                                                        if (str_starts_with($msg->media_url, 'http://') || str_starts_with($msg->media_url, 'https://')) {
+                                                            $fullMediaUrl = $msg->media_url;
+                                                            $cleanPath = parse_url($msg->media_url, PHP_URL_PATH);
+                                                        } else {
+                                                            // Jika bukan, asumsikan ini path relatif dari server GOWA
+                                                            $gowaBaseUrl = env('GOWA_API_URL', 'http://localhost:5271');
+                                                            $cleanPath = str_replace('\\', '/', $msg->media_url);
+                                                            $fullMediaUrl = rtrim($gowaBaseUrl, '/') . '/' . ltrim($cleanPath, '/');
+                                                        }
                                                         $extension = strtolower(pathinfo($cleanPath, PATHINFO_EXTENSION));
                                                     }
 
@@ -264,16 +272,31 @@
 
                                 @else
                                     <div class="p-4 bg-gray-50 border-t border-gray-200">
-                                        <form action="{{ route('messages.store') }}" method="POST" class="flex gap-2">
+                                        <form action="{{ route('messages.store') }}" method="POST" enctype="multipart/form-data" class="flex flex-col gap-2">
                                             @csrf
                                             <input type="hidden" name="device_id" value="{{ $activeTicket->device_id }}">
                                             <input type="hidden" name="number" value="{{ $activeTicket->number }}">
 
-                                            <textarea name="message" rows="1" class="flex-1 resize-none border-gray-300 rounded-full shadow-sm focus:border-indigo-500 focus:ring-indigo-500 py-3 px-5 text-sm" placeholder="Ketik balasan Anda di sini..."></textarea>
+                                            <div id="file-preview-container" class="hidden px-4 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-xs flex justify-between items-center text-indigo-700 font-medium">
+                                                <div class="flex items-center gap-2 overflow-hidden">
+                                                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                                                    <span id="file-name-display" class="truncate">nama-file.jpg</span>
+                                                </div>
+                                                <button type="button" onclick="removeFile()" class="text-red-500 hover:text-red-700 font-bold ml-2">✕ Hapus</button>
+                                            </div>
 
-                                            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-full p-3 shadow transition flex items-center justify-center flex-shrink-0 w-12 h-12">
-                                                <svg class="w-5 h-5 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
-                                            </button>
+                                            <div class="flex gap-2 items-end">
+                                                <label class="cursor-pointer bg-white border border-gray-300 hover:bg-gray-100 text-gray-500 rounded-full p-3 shadow-sm transition flex items-center justify-center flex-shrink-0 w-12 h-12" title="Lampirkan Dokumen/Gambar">
+                                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                                                    <input type="file" name="file" id="file-upload" class="hidden" onchange="showFilePreview(this)">
+                                                </label>
+
+                                                <textarea name="message" rows="1" class="flex-1 resize-none border-gray-300 rounded-full shadow-sm focus:border-indigo-500 focus:ring-indigo-500 py-3 px-5 text-sm" placeholder="Ketik pesan atau caption gambar..."></textarea>
+
+                                                <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-full p-3 shadow transition flex items-center justify-center flex-shrink-0 w-12 h-12">
+                                                    <svg class="w-5 h-5 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                                                </button>
+                                            </div>
                                         </form>
                                     </div>
                                 @endif
@@ -396,6 +419,18 @@
         </div>
     </div>
     <script>
+        // --- FUNGSI PREVIEW UPLOAD FILE ---
+        function showFilePreview(input) {
+            if (input.files && input.files[0]) {
+                document.getElementById('file-name-display').textContent = input.files[0].name;
+                document.getElementById('file-preview-container').classList.remove('hidden');
+            }
+        }
+
+        function removeFile() {
+            document.getElementById('file-upload').value = '';
+            document.getElementById('file-preview-container').classList.add('hidden');
+        }
         function openImageModal(imageUrl) {
             let modal = document.getElementById('imageLightboxModal');
             let img = document.getElementById('lightboxImage');

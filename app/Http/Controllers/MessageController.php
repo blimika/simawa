@@ -87,38 +87,88 @@ class MessageController extends Controller
     /**
      * MENGIRIM PESAN (BALASAN AGEN) KE PELANGGAN
      */
+    /**
+     * MENGIRIM PESAN (BALASAN AGEN) KE PELANGGAN
+     */
     public function store(Request $request, GowaService $gowa)
     {
         $request->validate([
             'device_id' => 'required',
             'number' => 'required',
-            'message' => 'required'
+            'message' => 'nullable|string', // Boleh kosong jika hanya mengirim gambar/dokumen
+            'file' => 'nullable|file|max:50000', // Maksimal file 50MB
         ]);
 
+        // Validasi: Minimal harus ada teks pesan ATAU file lampiran
+        if (empty($request->message) && !$request->hasFile('file')) {
+            return back()->with('error', 'Pesan atau lampiran tidak boleh kosong.');
+        }
+
         $device = Device::findOrFail($request->device_id);
-
-        // Memecah input nomor jika agen mengirim ke banyak nomor sekaligus (dipisah koma)
         $numbers = array_map('trim', explode(',', $request->number));
-
-        // Ambil nama agen yang sedang login
         $agentName = auth()->user()->name;
 
-        // Menyisipkan nama agen di akhir pesan (Signature Agen)
-        $messageToSend = $request->message . "\n\n*({$agentName})*";
+        // Menyisipkan nama agen di akhir pesan teks / caption
+        $baseMessage = $request->message ?? '';
+        $messageToSend = $baseMessage ? $baseMessage . "\n\n*({$agentName})*" : "*({$agentName})*";
+
+        // Siapkan variabel untuk file upload
+        $fileContents = null;
+        $fileName = null;
+        $mediaUrl = null;
+
+        // Jika ada file yang diunggah dari form Live Chat
+        if ($request->hasFile('file')) {
+            $uploadedFile = $request->file('file');
+            $fileContents = file_get_contents($uploadedFile->getRealPath());
+            $fileName = $uploadedFile->getClientOriginalName();
+
+            // Simpan file secara lokal agar bisa dilihat di riwayat Live Chat
+            $mediaPath = $uploadedFile->store('sent_media', 'public');
+            $mediaUrl = $mediaPath;
+        }
 
         $successCount = 0;
 
         foreach ($numbers as $targetNumber) {
             if (empty($targetNumber)) continue;
 
-            // Kirim pesan melalui GOWA
-            $response = $gowa->sendMessage(
-                $device->gowa_session_id,
-                $targetNumber,
-                $messageToSend
-            );
+            // Format nomor agar sesuai dengan standar API GOWA
+            $formattedPhone = str_contains($targetNumber, '@') ? $targetNumber : $targetNumber . '@s.whatsapp.net';
 
-            if ($response->successful()) {
+            // Kirim via GOWA Service (Tentukan pakai sendFile atau sendMessage)
+            if ($fileContents) {
+                //$response = $gowa->sendFile($device->gowa_session_id, $formattedPhone, $fileContents, $fileName, $messageToSend);
+                // Mengecek apakah file tersebut gambar berdasarkan ekstensinya
+                $extension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+                $imageExtensions = ['jpg', 'jpeg', 'png', 'webp'];
+
+                if (in_array($extension, $imageExtensions)) {
+                    // Eksekusi API Image (Bisa ditambah opsi kompresi jika mau)
+                    $response = $gowa->sendImage(
+                        $device->gowa_session_id,
+                        $formattedPhone,
+                        $fileContents,
+                        $fileName,
+                        $messageToSend,
+                        ['compress' => true] // Mengaktifkan fitur kompresi bawaan GOWA
+                    );
+                } else {
+                    // Eksekusi API Document/File biasa
+                    $response = $gowa->sendFile(
+                        $device->gowa_session_id,
+                        $formattedPhone,
+                        $fileContents,
+                        $fileName,
+                        $messageToSend
+                    );
+                }
+            } else {
+                $response = $gowa->sendMessage($device->gowa_session_id, $formattedPhone, $messageToSend);
+            }
+
+            if ($response && $response->successful()) {
+
                 // CEK APAKAH TIKET YANG MASIH OPEN SUDAH ADA
                 $ticket = Ticket::where('device_id', $device->id)
                             ->where('number', $targetNumber)
@@ -126,7 +176,6 @@ class MessageController extends Controller
                             ->first();
 
                 if (!$ticket) {
-                    // Buatkan tiket OPEN baru dan langsung assign ke agen ini (Bila tiket lamanya closed)
                     Ticket::create([
                         'ticket_number' => 'LYN-' . date('ymd') . '-' . strtoupper(\Illuminate\Support\Str::random(4)),
                         'device_id' => $device->id,
@@ -137,7 +186,6 @@ class MessageController extends Controller
                         'has_new_message' => false
                     ]);
                 } else {
-                    // Jika tiket memang open, cukup update timestamp aktivitas terbaru
                     $ticket->touch();
                 }
 
@@ -147,6 +195,7 @@ class MessageController extends Controller
                     'user_id' => auth()->id(),
                     'number' => $targetNumber,
                     'message' => $messageToSend,
+                    'media_url' => $mediaUrl, // Menyimpan path dokumen/gambar yang dikirim
                     'direction' => 'out',
                     'status' => 'sent',
                 ]);

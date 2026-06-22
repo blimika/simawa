@@ -4,9 +4,19 @@
             <h2 class="font-semibold text-xl text-gray-800 leading-tight">
                 {{ __('Manajemen Device') }}
             </h2>
+            @if(auth()->user()->isSuperadmin())
+                <form action="{{ route('devices.sync') }}" method="POST" onsubmit="return confirm('Apakah Anda yakin ingin mensinkronisasikan seluruh session device dari GOWA?');" class="inline">
+                    @csrf
+                    <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-md text-sm transition duration-150 shadow-sm inline-flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 12H16"></path></svg>
+                        Sinkronisasi Device GOWA
+                    </button>
+                </form>
+            @endif
             <a href="{{ route('devices.create') }}" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
                 + Tambah Device
             </a>
+
         </div>
     </x-slot>
 
@@ -32,6 +42,12 @@
                                 <th class="py-3 px-6 border-b">Nama Device</th>
                                 <th class="py-3 px-6 border-b">Nomor WA</th>
                                 <th class="py-3 px-6 border-b">Session ID</th>
+                                <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Admin / Pengelola
+                                </th>
+                                <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Live Chat
+                                </th>
                                 <th class="py-3 px-6 border-b">Status</th>
                                 <th class="py-3 px-6 border-b text-center">Aksi</th>
                             </tr>
@@ -42,6 +58,25 @@
                                 <td class="py-3 px-6 whitespace-nowrap font-medium">{{ $device->name }}</td>
                                 <td class="py-3 px-6">{{ $device->phone_number }}</td>
                                 <td class="py-3 px-6 font-mono text-xs bg-gray-100 rounded px-2">{{ $device->gowa_session_id }}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    <div class="flex items-center gap-1.5">
+                                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                                        <span class="font-medium text-gray-700">
+                                            {{ $device->owner->name ?? 'Belum Ditugaskan' }}
+                                        </span>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-center">
+                                    @if($device->is_livechat_enabled)
+                                        <span class="bg-indigo-100 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wide shadow-sm">
+                                            Enabled
+                                        </span>
+                                    @else
+                                        <span class="bg-gray-100 text-gray-500 border border-gray-300 px-2.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wide shadow-sm" title="Hanya meneruskan webhook ke server lain">
+                                            Disabled
+                                        </span>
+                                    @endif
+                                </td>
                                 <td class="py-3 px-6">
                                     @if($device->status == 'connected')
                                         <span class="bg-green-200 text-green-600 py-1 px-3 rounded-full text-xs">Terhubung</span>

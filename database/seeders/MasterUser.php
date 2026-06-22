@@ -17,7 +17,7 @@ class MasterUser extends Seeder
         User::create([
             'name'     => 'Super Admin',
             'username' => 'super',
-            'email'    => 'super@simawa.test',
+            'email'    => 'simawa@statsntb.id',
             'password' => Hash::make('1'),
             'role'     => 'superadmin',
             // user_uid tidak perlu diisi manual karena sudah ditangani oleh function boot() di Model

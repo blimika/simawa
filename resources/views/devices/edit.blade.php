@@ -11,7 +11,25 @@
 
                 <form action="{{ route('devices.update', $device->id) }}" method="POST" class="p-6 space-y-6">
                     @csrf
-                    @method('PUT') <div>
+                    @method('PUT')
+                    @if(auth()->user()->isSuperadmin())
+                        <div class="p-4 bg-indigo-50 rounded-md border border-indigo-100 mb-6">
+                            <label class="block text-sm font-bold text-indigo-900 flex items-center gap-1.5 mb-1">
+                                <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
+                                Alokasikan Penanggung Jawab Device
+                            </label>
+                            <select name="user_id" class="mt-1 w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm cursor-pointer">
+                                @foreach($admins as $admin)
+                                    <option value="{{ $admin->id }}" {{ old('user_id', $device->user_id) == $admin->id ? 'selected' : '' }}>
+                                        {{ $admin->name }} ({{ $admin->email }})
+                                    </option>
+                                @endforeach
+                            </select>
+                            <p class="text-[10px] text-indigo-700 mt-1">Gunakan fitur ini untuk memindahkan hak akses kelola obrolan device dari Admin saat ini ke Admin yang lain.</p>
+                            @error('user_id') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
+                        </div>
+                    @endif
+                    <div>
                         <label class="block text-sm font-medium text-gray-700">Nama Device / Instansi</label>
                         <input type="text" name="name" value="{{ old('name', $device->name) }}" class="mt-1 w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm" required placeholder="Contoh: Silaq">
                         @error('name') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
@@ -35,7 +53,17 @@
                         <p class="text-[11px] text-gray-400 mt-1">Kosongkan jika tidak ingin meneruskan/forward data JSON GOWA ke aplikasi pihak ketiga lainnya.</p>
                         @error('webhook_url') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
                     </div>
-
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">API Key SIMAWA (Untuk Pengiriman Pesan Eksternal)</label>
+                        <div class="flex mt-1 shadow-sm rounded-md">
+                            <input type="text" name="api_key" id="api_key" value="{{ old('api_key', $device->api_key) }}" class="flex-1 border-gray-300 rounded-l-md focus:border-indigo-500 focus:ring-indigo-500 text-sm font-mono bg-gray-50 text-indigo-700" readonly>
+                            <button type="button" onclick="document.getElementById('api_key').value = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('')" class="bg-gray-200 border border-gray-300 border-l-0 rounded-r-md px-4 text-sm font-bold text-gray-700 hover:bg-gray-300 transition cursor-pointer">
+                                ↺ Reset Key
+                            </button>
+                        </div>
+                        <p class="text-[11px] text-gray-400 mt-1">Tempelkan kode ini ke dalam header <span class="font-mono text-gray-600 bg-gray-100 px-1 rounded">X-API-KEY</span> di aplikasi Anda. Jangan bagikan kunci ini kepada publik.</p>
+                        @error('api_key') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
+                    </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700">Mode Sistem Operasional</label>
                         <select name="is_livechat_enabled" class="mt-1 w-full border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm">

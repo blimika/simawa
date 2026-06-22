@@ -94,13 +94,15 @@ class DeviceController extends Controller
      */
     public function edit(Device $device)
     {
-        // Kebijakan keamanan tambahan (Opsional):
-        // Memastikan admin biasa hanya bisa mengedit device miliknya sendiri
         if (!auth()->user()->isSuperadmin() && $device->user_id !== auth()->id()) {
             abort(403, 'Anda tidak memiliki akses untuk mengedit device ini.');
         }
 
-        return view('devices.edit', compact('device'));
+        // Ambil semua list user untuk pilihan drop-down transfer device bagi Super Admin
+        // Anda bisa memfilternya jika ada kolom role, misal: User::where('role', 'admin')->get()
+        $admins = User::all();
+
+        return view('devices.edit', compact('device', 'admins'));
     }
 
     /**
@@ -108,26 +110,41 @@ class DeviceController extends Controller
      */
     public function update(Request $request, Device $device)
     {
-        $request->validate([
+        $rules = [
             'name' => 'required|string|max:255',
             'phone_number' => 'required|string|max:255',
             'gowa_session_id' => 'required|string|max:255',
             'webhook_url' => 'nullable|url|max:255',
             'is_livechat_enabled' => 'required|boolean',
-        ]);
+            'api_key' => 'nullable|string|max:255|unique:devices,api_key,' . $device->id,
+        ];
 
-        // Bersihkan nomor HP dari karakter non-angka
+        // Validasi tambahan: Jika yang mengedit adalah Super Admin, wajib menyertakan user_id tujuan
+        if (auth()->user()->isSuperadmin()) {
+            $rules['user_id'] = 'required|exists:users,id';
+        }
+
+        $request->validate($rules);
+
         $cleanNumber = preg_replace('/[^0-9]/', '', $request->phone_number);
 
-        $device->update([
+        $updateData = [
             'name' => $request->name,
             'phone_number' => $cleanNumber,
             'gowa_session_id' => $request->gowa_session_id,
             'webhook_url' => $request->webhook_url,
             'is_livechat_enabled' => $request->is_livechat_enabled,
-        ]);
+            'api_key' => $request->api_key,
+        ];
+        //$updateData['api_key'] = $request->api_key;
+        // Jalankan pemindahan kepemilikan jika diset oleh Super Admin
+        if (auth()->user()->isSuperadmin()) {
+            $updateData['user_id'] = $request->user_id;
+        }
 
-        return redirect()->route('devices.index')->with('success', 'Data device berhasil diperbarui!');
+        $device->update($updateData);
+
+        return redirect()->route('devices.index')->with('success', 'Data device dan penanggung jawab berhasil diperbarui!');
     }
 
     /**
@@ -158,15 +175,17 @@ class DeviceController extends Controller
     // Fungsi untuk memunculkan halaman view saja
     public function scan(Device $device)
     {
-        if ($device->user_id !== auth()->id()) {
-            abort(403);
+        // Tambahkan pengecekan isSuperadmin() agar Super Admin bisa lewat
+        if (!auth()->user()->isSuperadmin() && $device->user_id !== auth()->id()) {
+            abort(403, 'Anda tidak memiliki akses untuk mengelola device ini.');
         }
         return view('devices.scan', compact('device'));
     }
 
     public function requestQr(Device $device, GowaService $gowa)
     {
-        if ($device->user_id !== auth()->id()) {
+        // Izinkan akses JIKA dia adalah Super Admin ATAU dia adalah pemilik device
+        if (!auth()->user()->isSuperadmin() && $device->user_id !== auth()->id()) {
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
@@ -267,5 +286,84 @@ class DeviceController extends Controller
             'status' => 'disconnected', // JANGAN sampai null atau undefined
             'phone_number' => $device->phone_number ?? '-'
         ]);
+    }
+    /**
+     * SINKRONISASI DAFTAR DEVICE DARI SERVER GOWA
+     */
+    public function syncDevices()
+    {
+        // 1. Proteksi Keamanan: Pastikan hanya Super Admin yang bisa mengakses fungsi ini
+        if (!auth()->user()->isSuperadmin()) {
+            abort(403, 'Hanya Super Admin yang diizinkan melakukan sinkronisasi device.');
+        }
+
+        // 2. Ambil Kredensial API GOWA dari file .env
+        $gowaBaseUrl = env('GOWA_API_URL', 'http://localhost:5271');
+        $gowaUser = env('GOWA_BASIC_USER', 'kota');
+        $gowaPass = env('GOWA_BASIC_PASS', 'kota');
+
+        try {
+            // 3. Request data list device ke GOWA
+            $response = \Illuminate\Support\Facades\Http::withBasicAuth($gowaUser, $gowaPass)
+                ->timeout(10)
+                ->get(rtrim($gowaBaseUrl, '/') . '/devices');
+
+            if ($response->successful()) {
+                $results = $response->json('results') ?? [];
+                $inserted = 0;
+                $updated = 0;
+
+                // 4. Looping data hasil dari GOWA
+                foreach ($results as $res) {
+                    $gowaId = $res['id'];
+                    $gowaState = $res['state'];
+
+                    // Konversi Status: 'logged_in' dari GOWA diubah menjadi 'connected' agar sesuai dengan SIMAWA
+                    $simawaStatus = ($gowaState === 'logged_in') ? 'connected' : 'disconnected';
+
+                    // Ekstrak nomor HP dari JID (misal: 6281803635400@s.whatsapp.net menjadi 6281803635400)
+                    $phoneNumber = null;
+                    if (!empty($res['jid'])) {
+                        $phoneNumber = explode('@', $res['jid'])[0];
+                    }
+
+                    // Tentukan Nama: Ambil display_name, jika null gunakan ID session sebagai nama default
+                    $deviceName = $res['display_name'] ?? $gowaId;
+
+                    // 5. Cek apakah device sudah terdaftar di SIMAWA
+                    $device = \App\Models\Device::where('gowa_session_id', $gowaId)->first();
+
+                    if ($device) {
+                        // KONDISI A: Device SUDAH ADA -> Cukup update status dan nomor HP jika terdeteksi logged_in
+                        $updateData = ['status' => $simawaStatus];
+                        if (!empty($phoneNumber)) {
+                            $updateData['phone_number'] = $phoneNumber;
+                        }
+
+                        $device->update($updateData);
+                        $updated++;
+                    } else {
+                        // KONDISI B: Device BELUM ADA -> Otomatis buat data device baru di SIMAWA
+                        \App\Models\Device::create([
+                            'name' => $deviceName,
+                            'phone_number' => $phoneNumber ?? '',
+                            'gowa_session_id' => $gowaId,
+                            'status' => $simawaStatus,
+                            'webhook_url' => null,
+                            'is_livechat_enabled' => true, // default diaktifkan livechatnya
+                            'user_id' => auth()->id(), // Otomatis dikunci kepemilikannya ke Superadmin yang melakukan sync
+                        ]);
+                        $inserted++;
+                    }
+                }
+
+                return back()->with('success', "Sinkronisasi Berhasil! Berhasil menambah {$inserted} device baru dan memperbarui {$updated} status device.");
+            }
+
+            return back()->with('error', 'Gagal terhubung dengan server GOWA. Kode Status: ' . $response->status());
+
+        } catch (\Exception $e) {
+            return back()->with('error', 'Terjadi kesalahan sistem saat sinkronisasi: ' . $e->getMessage());
+        }
     }
 }

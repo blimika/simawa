@@ -6,10 +6,13 @@ use Illuminate\Database\Eloquent\Model;
 
 class Device extends Model
 {
+    /*
     protected $fillable = [
-        'user_id', 'name', 'phone_number', 'gowa_session_id', 'status', 'webhook_url', 'is_livechat_enabled'
+        'user_id', 'name', 'phone_number', 'gowa_session_id', 'status', 'webhook_url', 'is_livechat_enabled', 'api_key'
+    ]; */
+    protected $fillable = [
+        'name', 'phone_number', 'gowa_session_id', 'status', 'webhook_url', 'user_id', 'is_livechat_enabled', 'api_key'
     ];
-
     // Tambahkan baris ini agar selalu dibaca sebagai true/false
     protected $casts = [
         'is_livechat_enabled' => 'boolean',
@@ -45,5 +48,14 @@ class Device extends Model
             // Agent melihat device milik Admin-nya
             return $query->where('user_id', $user->parent_id);
         }
+    }
+    protected static function boot()
+    {
+        parent::boot();
+        static::creating(function ($device) {
+            if (empty($device->api_key)) {
+                $device->api_key = \Illuminate\Support\Str::random(32);
+            }
+        });
     }
 }

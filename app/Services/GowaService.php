@@ -164,4 +164,52 @@ class GowaService
             'message' => $message
         ]);
     }
+    /**
+     * Mengirim File / Gambar / Dokumen (Multipart Form-Data)
+     */
+    public function sendFile($sessionId, $phone, $fileContents, $fileName, $caption = '')
+    {
+        try {
+            // Gunakan fungsi client() bawaan Anda untuk menyematkan Auth & Header otomatis
+            return $this->client($sessionId)
+                ->timeout(60) // Perpanjang timeout khusus untuk upload file
+                ->attach('file', $fileContents, $fileName)
+                ->post($this->baseUrl . '/send/file', [
+                    'phone' => $phone,
+                    'caption' => $caption
+                ]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('GOWA API Error (Send File): ' . $e->getMessage());
+            throw $e; // Lempar error ke Controller agar bisa ditangkap oleh API response
+        }
+    }
+    /**
+     * Mengirim Gambar Khusus (Multipart Form-Data)
+     * Endpoint: /send/image
+     */
+    public function sendImage($sessionId, $phone, $imageContents, $imageName, $caption = '', $options = [])
+    {
+        try {
+            // Base payload sesuai dokumentasi Swagger
+            $payload = [
+                'phone'   => $phone,
+                'caption' => $caption,
+            ];
+
+            // Menggabungkan parameter opsional seperti compress, view_once, dll
+            if (!empty($options)) {
+                $payload = array_merge($payload, $options);
+            }
+
+            return $this->client($sessionId)
+                ->timeout(60)
+                // PERHATIKAN: Key di sini adalah 'image', sesuai dengan spec GOWA
+                ->attach('image', $imageContents, $imageName)
+                ->post($this->baseUrl . '/send/image', $payload);
+
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('GOWA API Error (Send Image): ' . $e->getMessage());
+            throw $e;
+        }
+    }
 }
