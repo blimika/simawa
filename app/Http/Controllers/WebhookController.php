@@ -40,6 +40,8 @@ class WebhookController extends Controller
         $fromName = data_get($payload, 'from_name');
         $text = data_get($payload, 'body') ?? '';
         $isFromMe = data_get($payload, 'is_from_me', false);
+        // --- TAMBAHKAN BARIS INI UNTUK MENANGKAP ID ROOM CHAT ---
+        $chatId = data_get($payload, 'chat_id') ?? '';
 
        // --- TANGKAP KUTIPAN PESAN (QUOTE REPLY) ---
         $quotedBody = data_get($payload, 'quoted_body');
@@ -91,7 +93,7 @@ class WebhookController extends Controller
             } */
 
             // 6. Validasi Pesan (Abaikan jika dari diri sendiri atau grup)
-            if ((empty($text) && empty($mediaPath)) || $isFromMe || Str::contains($rawFrom, '@g.us')) {
+            if ((empty($text) && empty($mediaPath)) || $isFromMe || Str::contains($rawFrom, '@g.us') || Str::contains($chatId, '@g.us')) {
                 // Return di sini kita hilangkan agar lanjut ke Webhook Forwarding di bawah
                 $skipLiveChat = true;
             } else {

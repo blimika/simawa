@@ -145,9 +145,36 @@
                                     <p class="text-xs text-gray-500">{{ $activeTicket->number }} • Tiket: {{ $activeTicket->ticket_number }} ({{ strtoupper($activeTicket->status) }})</p>
                                 </div>
 
-                                <div class="flex gap-2 items-center">
+                                <div class="flex gap-2 items-center flex-wrap justify-end">
                                     @if($activeTicket->status === 'open')
+
+                                        @if($activeTicket->agent_id && $activeTicket->agent_id !== auth()->id())
+                                            <form action="{{ route('messages.transfer', $activeTicket->id) }}" method="POST">
+                                                @csrf
+                                                <button type="submit" onclick="return confirm('Ambil alih percakapan ini dari agen sebelumnya?')" class="bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium px-3 py-2 rounded-md transition shadow-sm flex items-center gap-1">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
+                                                    Ambil Alih
+                                                </button>
+                                            </form>
+                                        @endif
+
                                         @if($activeTicket->agent_id === auth()->id() || auth()->user()->isSuperadmin())
+
+                                            <form action="{{ route('messages.transfer', $activeTicket->id) }}" method="POST" class="flex items-center">
+                                                @csrf
+                                                <select name="target_agent_id" required class="text-xs border-gray-300 rounded-l-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 py-2 pl-2 pr-6 bg-gray-50 hover:bg-white transition cursor-pointer max-w-[120px]">
+                                                    <option value="">-- Oper --</option>
+                                                    @isset($agents)
+                                                        @foreach($agents as $agent)
+                                                            <option value="{{ $agent->id }}">{{ $agent->name }}</option>
+                                                        @endforeach
+                                                    @endisset
+                                                </select>
+                                                <button type="submit" onclick="return confirm('Transfer tiket ini ke agen lain? Anda tidak bisa membalas setelah ditransfer.')" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-2 rounded-r-md transition shadow-sm border border-transparent">
+                                                    Kirim
+                                                </button>
+                                            </form>
+
                                             <form action="{{ route('messages.update_tag', $activeTicket->id) }}" method="POST" class="flex items-center">
                                                 @csrf
                                                 <select name="tag" onchange="this.form.submit()" class="text-xs border-gray-300 rounded-l-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 py-2 pr-8 pl-3 bg-gray-50 hover:bg-white transition cursor-pointer">

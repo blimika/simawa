@@ -80,6 +80,8 @@ Route::middleware(['auth', 'active.user'])->group(function () {
         Route::put('phonebook/{id}', [App\Http\Controllers\PhonebookController::class, 'update'])->name('phonebook.update');
         // Rute Resource otomatis untuk index, create, store, edit, update, destroy
         Route::resource('phonebook', PhonebookController::class);
+        // Rute BARU untuk Transfer / Ambil Alih Tiket
+        Route::post('messages/{ticket}/transfer', [MessageController::class, 'transferTicket'])->name('messages.transfer');
         Route::post('messages/{ticket}/close', [MessageController::class, 'closeTicket'])->name('messages.close');
         Route::post('messages/{ticket}/tag', [App\Http\Controllers\MessageController::class, 'updateTag'])->name('messages.update_tag');
         Route::post('messages/{ticket}/start', [App\Http\Controllers\MessageController::class, 'startService'])->name('messages.start');

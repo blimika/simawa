@@ -8,6 +8,8 @@ use App\Models\Message;
 use App\Models\Ticket;
 use App\Models\Phonebook;
 use App\Services\GowaService;
+use Illuminate\Support\Str;
+use App\Models\User;
 
 class MessageController extends Controller
 {
@@ -81,19 +83,21 @@ class MessageController extends Controller
         }
 
         // 6. Kirim semua variabel ke file View
-        return view('messages.index', compact('devices', 'tickets', 'activeTicket', 'messages', 'contactName', 'contacts'));
+        $agents = User::where('id', '!=', auth()->id())->get();
+        //return view('messages.index', compact('tickets', 'messages', 'contacts', 'activeTicket', 'agents'));
+        return view('messages.index', compact('devices', 'tickets', 'activeTicket', 'messages', 'contactName', 'contacts','agents'));
     }
 
     /**
      * MENGIRIM PESAN (BALASAN AGEN) KE PELANGGAN
      */
-    public function store(Request $request, \App\Services\GowaService $gowa)
+    public function store(Request $request, GowaService $gowa)
     {
         $request->validate([
             'device_id' => 'required',
             'number' => 'required',
-            'message' => 'nullable|string', 
-            'file' => 'nullable|file|max:50000', 
+            'message' => 'nullable|string',
+            'file' => 'nullable|file|max:50000',
         ]);
 
         if (empty($request->message) && !$request->hasFile('file')) {
@@ -129,7 +133,7 @@ class MessageController extends Controller
             // =======================================================
             // Hilangkan semua karakter selain angka (spasi, strip, tanda +)
             $cleanNumber = preg_replace('/[^0-9]/', '', $targetNumber);
-            
+
             // Jika nomor diawali dengan angka 0, otomatis ganti menjadi 62
             if (str_starts_with($cleanNumber, '0')) {
                 $cleanNumber = '62' . substr($cleanNumber, 1);
@@ -145,7 +149,7 @@ class MessageController extends Controller
                 if ($fileContents) {
                     $extension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
                     $imageExtensions = ['jpg', 'jpeg', 'png', 'webp'];
-                    
+
                     if (in_array($extension, $imageExtensions)) {
                         $response = $gowa->sendImage($device->gowa_session_id, $formattedPhone, $fileContents, $fileName, $messageToSend);
                     } else {
@@ -159,15 +163,15 @@ class MessageController extends Controller
                 // 3. CEK HASIL RESPON DARI GOWA
                 // =======================================================
                 if ($response && $response->successful()) {
-                    
+
                     // Simpan ke Tiket & Messages menggunakan nomor yang sudah bersih (62...)
-                    $ticket = \App\Models\Ticket::where('device_id', $device->id)
+                    $ticket = Ticket::where('device_id', $device->id)
                                 ->where('number', $cleanNumber)
                                 ->where('status', 'open')
                                 ->first();
 
                     if (!$ticket) {
-                        \App\Models\Ticket::create([
+                        Ticket::create([
                             'ticket_number' => 'LYN-' . date('ymd') . '-' . strtoupper(\Illuminate\Support\Str::random(4)),
                             'device_id' => $device->id,
                             'number' => $cleanNumber,
@@ -177,10 +181,10 @@ class MessageController extends Controller
                             'has_new_message' => false
                         ]);
                     } else {
-                        $ticket->touch(); 
+                        $ticket->touch();
                     }
 
-                    \App\Models\Message::create([
+                    Message::create([
                         'device_id' => $device->id,
                         'user_id' => auth()->id(),
                         'number' => $cleanNumber,
@@ -315,6 +319,31 @@ class MessageController extends Controller
         }
 
         return back()->with('success', 'Tiket berhasil diambil. Anda sudah bisa membalas pesan pelanggan.');
+    }
+    /**
+     * FUNGSI TRANSFER & AMBIL ALIH TIKET LIVE CHAT
+     */
+    public function transferTicket(Request $request, $id)
+    {
+        $ticket = Ticket::findOrFail($id);
+        $currentUser = auth()->user();
+
+        // SKENARIO 1: AMBIL ALIH (TAKE OVER)
+        // Jika request tidak mengirim ID agen tujuan, berarti agen menekan tombol "Ambil Alih"
+        if (!$request->has('target_agent_id')) {
+            $ticket->update(['agent_id' => $currentUser->id]);
+            return back()->with('success', 'Tiket berhasil Anda ambil alih!');
+        }
+
+        // SKENARIO 2: TRANSFER KE AGEN LAIN
+        $request->validate([
+            'target_agent_id' => 'required|exists:users,id'
+        ]);
+
+        $ticket->update(['agent_id' => $request->target_agent_id]);
+
+        // Setelah transfer berhasil, arahkan agen lama kembali ke daftar antrean pesan
+        return redirect()->route('messages.index')->with('success', 'Tiket berhasil ditransfer ke agen lain.');
     }
 }
 
