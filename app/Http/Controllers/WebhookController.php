@@ -202,7 +202,8 @@ class WebhookController extends Controller
                     }
                 }
             }
-        }        // ====================================================================
+        }
+        // ====================================================================
         // --- FITUR: FORWARD WEBHOOK GOWA KE SERVER LAIN (PROXY) ---
         // ====================================================================
         // Mengecek apakah device ini memiliki isian webhook_url di database
@@ -224,5 +225,18 @@ class WebhookController extends Controller
 
         // Response akhir untuk dikembalikan ke GOWA
         return response()->json(['status' => 'success', 'message' => 'Proses SIMAWA dan Forwarding selesai']);
+    }
+
+    public function index()
+    {
+        // Ambil data terbaru, batasi 50 per halaman
+        $logs = WebhookLog::latest()->paginate(50);
+        return view('webhook_logs.index', compact('logs'));
+    }
+
+    public function clear()
+    {
+        WebhookLog::truncate();
+        return back()->with('success', 'Semua riwayat Webhook berhasil dibersihkan.');
     }
 }

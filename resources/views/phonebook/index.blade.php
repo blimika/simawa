@@ -2,144 +2,190 @@
     <x-slot name="header">
         <div class="flex justify-between items-center">
             <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-                {{ __('Buku Telepon') }}
+                {{ __('Buku Telepon (Phonebook)') }}
             </h2>
-            <a href="{{ route('phonebook.create') }}" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md text-sm transition duration-150">
+            <a href="{{ route('phonebook.create') }}" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium transition shadow-sm">
                 + Tambah Kontak
             </a>
         </div>
     </x-slot>
 
-    <div class="py-12">
+    <div class="py-12 bg-gray-50">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
 
-            @if(session('success'))
-                <div class="mb-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative">
+            @if (session('success'))
+                <div class="mb-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative shadow-sm">
                     {{ session('success') }}
                 </div>
             @endif
-
-            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
-                <div class="p-6 text-gray-900 overflow-x-auto">
-                    <table class="w-full whitespace-nowrap">
-                        <thead>
-                            <tr class="text-left font-bold text-gray-500 border-b-2 border-gray-200">
-                                <th class="pb-3 px-4">Nama Pelanggan</th>
-                                <th class="pb-3 px-4">Nomor WhatsApp</th>
-                                <th class="pb-3 px-4">Grup / Kategori</th>
-                                @if(auth()->user()->isSuperadmin())
-                                    <th class="pb-3 px-4">Milik Admin</th>
-                                @endif
-                                <th class="pb-3 px-4 text-center">Aksi</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @forelse($contacts as $contact)
-                                <tr class="border-b border-gray-100 hover:bg-gray-50">
-                                    <td class="py-3 px-4 font-medium text-gray-800">{{ $contact->name }}</td>
-                                    <td class="py-3 px-4 text-green-600 font-mono">{{ $contact->number }}</td>
-                                    <td class="py-3 px-4">
-                                        @if($contact->category)
-                                            <span class="bg-indigo-100 text-indigo-800 text-xs font-semibold px-2.5 py-0.5 rounded">{{ $contact->category }}</span>
-                                        @else
-                                            <span class="text-gray-400 text-xs italic">-</span>
-                                        @endif
-                                    </td>
-                                    @if(auth()->user()->isSuperadmin())
-                                        <td class="py-3 px-4 text-gray-600 text-sm">{{ $contact->owner->name ?? 'Unknown' }}</td>
-                                    @endif
-                                    <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium flex justify-center gap-2">
-                                        <button onclick="openEditModal({{ $contact->id }}, '{{ addslashes($contact->name) }}', '{{ $contact->number }}', '{{ addslashes($contact->category) }}')" class="bg-amber-100 text-amber-700 hover:bg-amber-200 px-3 py-1.5 rounded transition flex items-center gap-1 shadow-sm">
-                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
-                                            Edit
-                                        </button>
-
-                                        <form action="{{ route('phonebook.destroy', $contact->id) }}" method="POST" onsubmit="return confirm('Yakin ingin menghapus kontak {{ $contact->name }}?');">
-                                            @csrf
-                                            @method('DELETE')
-                                            <button type="submit" class="bg-rose-100 text-rose-700 hover:bg-rose-200 px-3 py-1.5 rounded transition flex items-center gap-1 shadow-sm">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                                Hapus
-                                            </button>
-                                        </form>
-
-                                    </td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="{{ auth()->user()->isSuperadmin() ? '4' : '3' }}" class="py-6 text-center text-gray-500 italic">Belum ada kontak yang disimpan.</td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-
-                    <div class="mt-4">
-                        {{ $contacts->links() }}
-                    </div>
+            @if (session('error'))
+                <div class="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative shadow-sm">
+                    {{ session('error') }}
                 </div>
-            </div>
-        </div>
-    </div>
-    <div id="editContactModal" class="fixed inset-0 z-[70] hidden overflow-y-auto">
-        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onclick="closeEditModal()"></div>
-            <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+            @endif
 
-            <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-visible shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-md sm:w-full">
-                <form action="" method="POST" id="formEditContact">
+            <div class="mb-6 bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <h3 class="font-bold text-gray-800 text-lg">Import Kontak Massal</h3>
+                    <p class="text-sm text-gray-500 mt-1 mb-2">Upload file Excel yang disimpan dengan format <strong>.CSV</strong> (Comma delimited).</p>
+
+                    <a href="{{ route('phonebook.template') }}" class="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-md transition w-max">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        Download Template CSV
+                    </a>
+                </div>
+
+                <form action="{{ route('phonebook.import') }}" method="POST" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
                     @csrf
-                    @method('PUT') <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4 rounded-t-lg">
-                        <h3 class="text-lg leading-6 font-bold text-gray-900 mb-4 border-b pb-2 flex items-center gap-2">
-                            <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-                            Edit Kontak
-                        </h3>
-
-                        <div class="mb-4">
-                            <label class="block text-sm font-medium text-gray-700">Nama Lengkap</label>
-                            <input type="text" name="name" id="editModalName" class="mt-1 w-full border-gray-300 rounded-md shadow-sm focus:border-amber-500 focus:ring-amber-500 text-sm" required autofocus>
-                        </div>
-
-                        <div class="mb-4">
-                            <label class="block text-sm font-medium text-gray-700">Nomor WhatsApp</label>
-                            <input type="text" name="number" id="editModalNumber" class="mt-1 w-full border-gray-300 rounded-md shadow-sm focus:border-amber-500 focus:ring-amber-500 text-sm font-mono" required>
-                        </div>
-
-                        <div class="mb-2">
-                            <label class="block text-sm font-medium text-gray-700">Grup / Kategori</label>
-                            <input type="text" name="category" id="editModalCategory" class="mt-1 w-full border-gray-300 rounded-md shadow-sm focus:border-amber-500 focus:ring-amber-500 text-sm" placeholder="Contoh: VIP, Rekan Kerja, Dinas">
-                            <p class="text-[10px] text-gray-500 mt-1">Boleh dikosongkan jika tidak ada grup.</p>
-                        </div>
-                    </div>
-                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse rounded-b-lg">
-                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-amber-600 text-base font-medium text-white hover:bg-amber-700 sm:ml-3 sm:w-auto sm:text-sm">
-                            Simpan Perubahan
-                        </button>
-                        <button type="button" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" onclick="closeEditModal()">
-                            Batal
-                        </button>
-                    </div>
+                    <input type="file" name="file" accept=".csv" required class="block w-full text-sm text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition">
+                    <button type="submit" class="w-full sm:w-auto shrink-0 whitespace-nowrap bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-full text-sm font-bold transition shadow-sm flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                        Import File
+                    </button>
                 </form>
             </div>
+
+            <div class="bg-white shadow-sm rounded-xl border border-gray-100 overflow-hidden">
+                <form id="bulkDeleteForm" action="{{ route('phonebook.bulk-delete') }}" method="POST">
+                    @csrf
+
+                    <div class="p-4 border-b border-gray-100 bg-white flex justify-between items-center">
+                        <h3 class="font-semibold text-gray-700">Daftar Kontak</h3>
+
+                        <div id="bulkDeleteBtnContainer" class="hidden">
+                            <button type="submit" onclick="return confirm('Peringatan: Anda akan menghapus semua kontak terpilih secara permanen. Lanjutkan?')" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm font-bold transition shadow-sm flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                Hapus (<span id="selectedCount">0</span>) Terpilih
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 w-10 text-center">
+                                        <input type="checkbox" id="selectAll" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500 cursor-pointer">
+                                    </th>
+                                    <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Nama Kontak</th>
+                                    <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Nomor WhatsApp</th>
+                                    <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Kategori</th>
+                                    <th class="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-100">
+                                @forelse ($contacts as $contact)
+                                    <tr class="hover:bg-gray-50/70 transition">
+                                        <td class="px-6 py-4 text-center">
+                                            <input type="checkbox" name="ids[]" value="{{ $contact->id }}" class="item-checkbox rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500 cursor-pointer">
+                                        </td>
+
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <div class="flex items-center">
+                                                <div class="h-8 w-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs uppercase mr-3">
+                                                    {{ substr($contact->name, 0, 2) }}
+                                                </div>
+                                                <span class="text-sm font-semibold text-gray-900">{{ $contact->name }}</span>
+                                            </div>
+                                        </td>
+
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">
+                                            {{ $contact->number }}
+                                        </td>
+
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                            @if($contact->category)
+                                                <span class="px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-full">
+                                                    {{ $contact->category }}
+                                                </span>
+                                            @else
+                                                <span class="text-gray-400 italic text-xs">-</span>
+                                            @endif
+                                        </td>
+
+                                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                            <div class="flex justify-end gap-3">
+                                                <a href="{{ route('phonebook.edit', $contact->id) }}" class="text-indigo-600 hover:text-indigo-900 font-semibold">Edit</a>
+
+                                                <button type="submit" formaction="{{ route('phonebook.destroy', $contact->id) }}" formmethod="POST" onclick="return confirm('Hapus kontak ini?')" class="text-red-600 hover:text-red-900 font-semibold">
+                                                    @method('DELETE')
+                                                    Hapus
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="5" class="px-6 py-10 text-center text-sm text-gray-400 italic bg-gray-50">
+                                            Buku telepon Anda masih kosong. Silakan tambah manual atau lakukan import CSV.
+                                        </td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </form>
+
+                @if(method_exists($contacts, 'links'))
+                    <div class="p-4 border-t border-gray-100 bg-white">
+                        {{ $contacts->links() }}
+                    </div>
+                @endif
+            </div>
+
         </div>
     </div>
+
     <script>
-        // --- FUNGSI MODAL EDIT KONTAK ---
-        function openEditModal(id, name, number, category) {
-            document.getElementById('editContactModal').classList.remove('hidden');
+        (function() {
+            // Fungsi sentral untuk kalkulasi status checkbox
+            function checkBulkDeleteStatus() {
+                const checkedCount = document.querySelectorAll('.item-checkbox:checked').length;
+                const totalCount = document.querySelectorAll('.item-checkbox').length;
+                const btnContainer = document.getElementById('bulkDeleteBtnContainer');
+                const selectedCountText = document.getElementById('selectedCount');
+                const masterCheckbox = document.getElementById('selectAll');
 
-            // Isi form dengan data saat ini
-            document.getElementById('editModalName').value = name;
-            document.getElementById('editModalNumber').value = number;
+                if (selectedCountText) {
+                    selectedCountText.textContent = checkedCount;
+                }
 
-            // Jika kategori kosong/null, jadikan string kosong
-            document.getElementById('editModalCategory').value = category !== 'null' && category ? category : '';
+                if (checkedCount > 0) {
+                    if (btnContainer) btnContainer.classList.remove('hidden');
+                } else {
+                    if (btnContainer) btnContainer.classList.add('hidden');
+                }
 
-            // Ubah action URL form
-            document.getElementById('formEditContact').action = '/phonebook/' + id;
-        }
+                if (masterCheckbox && totalCount > 0) {
+                    masterCheckbox.checked = (checkedCount === totalCount);
+                }
+            }
 
-        function closeEditModal() {
-            document.getElementById('editContactModal').classList.add('hidden');
-        }
+            // CCTV Global: Menggunakan Event Delegation (Metode paling stabil)
+            document.addEventListener('change', function(e) {
+                // 1. Jika Klik Master Checkbox (Pilih Semua)
+                if (e.target && e.target.id === 'selectAll') {
+                    const isChecked = e.target.checked;
+                    const itemCheckboxes = document.querySelectorAll('.item-checkbox');
+
+                    itemCheckboxes.forEach(function(checkbox) {
+                        checkbox.checked = isChecked;
+                    });
+
+                    checkBulkDeleteStatus();
+                }
+                // 2. Jika Klik Checkbox Satuan
+                else if (e.target && e.target.classList.contains('item-checkbox')) {
+                    checkBulkDeleteStatus();
+                }
+            });
+
+            // Antisipasi jika browser melakukan autofill/cache centang saat back page
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', checkBulkDeleteStatus);
+            } else {
+                checkBulkDeleteStatus();
+            }
+        })();
     </script>
 </x-app-layout>

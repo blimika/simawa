@@ -15,31 +15,36 @@
                     <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                         {{ __('Dashboard') }}
                     </x-nav-link>
-
                     <x-nav-link :href="route('messages.index')" :active="request()->routeIs('messages.*')">
                         {{ __('Live Chat') }}
                     </x-nav-link>
                     <x-nav-link :href="route('broadcast.create')" :active="request()->routeIs('broadcast.*')">
-                        {{ __('Broadcast WA') }}
+                        {{ __('Broadcast') }}
                     </x-nav-link>
                     @if(auth()->user()->isSuperadmin())
                         <x-nav-link :href="route('admins.index')" :active="request()->routeIs('admins.*')">
-                            {{ __('Manajemen Admin') }}
+                            {{ __('Admin') }}
                         </x-nav-link>
                     @endif
 
                     @if(auth()->user()->isSuperadmin() || auth()->user()->isAdmin())
                         <x-nav-link :href="route('devices.index')" :active="request()->routeIs('devices.*')">
-                            {{ __('Device WhatsApp') }}
+                            {{ __('Device') }}
                         </x-nav-link>
 
                         <x-nav-link :href="route('agents.index')" :active="request()->routeIs('agents.*')">
-                            {{ __('Manajemen Agen') }}
+                            {{ __('Agen') }}
+                        </x-nav-link>
+                        <x-nav-link :href="route('reports.index')" :active="request()->routeIs('reports.index')">
+                            {{ __('Laporan') }}
                         </x-nav-link>
                     @endif
 
                     <x-nav-link :href="route('phonebook.index')" :active="request()->routeIs('phonebook.*')">
                         {{ __('Buku Telepon') }}
+                    </x-nav-link>
+                    <x-nav-link :href="route('webhook-logs.index')" :active="request()->routeIs('webhook-logs.index')">
+                        {{ __('Logs') }}
                     </x-nav-link>
                 </div>
             </div>
@@ -96,27 +101,30 @@
             <x-responsive-nav-link :href="route('messages.index')" :active="request()->routeIs('messages.*')">
                 {{ __('Live Chat') }}
             </x-responsive-nav-link>
-            <x-nav-link :href="route('broadcast.create')" :active="request()->routeIs('broadcast.*')">
-                        {{ __('Broadcast WA') }}
-                    </x-nav-link>
+            <x-responsive-nav-link :href="route('broadcast.create')" :active="request()->routeIs('broadcast.*')">
+                        {{ __('Broadcast') }}
+            </x-responsive-nav-link>
             @if(auth()->user()->isSuperadmin())
                 <x-responsive-nav-link :href="route('admins.index')" :active="request()->routeIs('admins.*')">
-                    {{ __('Manajemen Admin') }}
+                    {{ __('Admin') }}
                 </x-responsive-nav-link>
             @endif
 
             @if(auth()->user()->isSuperadmin() || auth()->user()->isAdmin())
                 <x-responsive-nav-link :href="route('devices.index')" :active="request()->routeIs('devices.*')">
-                    {{ __('Device WhatsApp') }}
+                    {{ __('Device') }}
                 </x-responsive-nav-link>
 
                 <x-responsive-nav-link :href="route('agents.index')" :active="request()->routeIs('agents.*')">
-                    {{ __('Manajemen Agen') }}
+                    {{ __('Agen') }}
                 </x-responsive-nav-link>
             @endif
 
             <x-responsive-nav-link :href="route('phonebook.index')" :active="request()->routeIs('phonebook.*')">
                 {{ __('Buku Telepon') }}
+            </x-responsive-nav-link>
+            <x-responsive-nav-link :href="route('webhook-logs.index')" :active="request()->routeIs('webhook-logs.index')">
+                {{ __('Logs') }}
             </x-responsive-nav-link>
         </div>
 

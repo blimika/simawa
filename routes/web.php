@@ -8,6 +8,8 @@ use App\Http\Controllers\AgentController;
 use App\Http\Controllers\PhonebookController;
 use App\Http\Controllers\MessageController;
 use App\Http\Controllers\BroadcastController;
+use App\Http\Controllers\WebhookController;
+use App\Http\Controllers\ReportController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -24,6 +26,7 @@ Route::middleware(['auth', 'active.user'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
 
     // ==========================================
     // AREA KHUSUS ADMIN
@@ -70,8 +73,13 @@ Route::middleware(['auth', 'active.user'])->group(function () {
     // --- AKSES SEMUA (Superadmin, Admin, Agent) ---
     Route::middleware(['role:superadmin,admin,agent'])->group(function () {
         // Phonebook & Messages
+        // Rute untuk Download Template CSV (Taruh di atas Route::resource)
+        Route::get('/phonebook/template', [PhonebookController::class, 'downloadTemplate'])->name('phonebook.template');
+        Route::post('/phonebook/import', [PhonebookController::class, 'import'])->name('phonebook.import');
+        Route::post('/phonebook/bulk-delete', [PhonebookController::class, 'bulkDelete'])->name('phonebook.bulk-delete');
         Route::put('phonebook/{id}', [App\Http\Controllers\PhonebookController::class, 'update'])->name('phonebook.update');
-        Route::resource('phonebook', App\Http\Controllers\PhonebookController::class)->except(['show', 'edit', 'update']);
+        // Rute Resource otomatis untuk index, create, store, edit, update, destroy
+        Route::resource('phonebook', PhonebookController::class);
         Route::post('messages/{ticket}/close', [MessageController::class, 'closeTicket'])->name('messages.close');
         Route::post('messages/{ticket}/tag', [App\Http\Controllers\MessageController::class, 'updateTag'])->name('messages.update_tag');
         Route::post('messages/{ticket}/start', [App\Http\Controllers\MessageController::class, 'startService'])->name('messages.start');
@@ -79,6 +87,9 @@ Route::middleware(['auth', 'active.user'])->group(function () {
         // Fitur Broadcast
         Route::get('broadcast', [BroadcastController::class, 'create'])->name('broadcast.create');
         Route::post('broadcast', [BroadcastController::class, 'store'])->name('broadcast.store');
+
+        Route::get('/webhook-logs', [WebhookController::class, 'index'])->name('webhook-logs.index');
+        Route::post('/webhook-logs/clear', [WebhookController::class, 'clear'])->name('webhook-logs.clear');
     });
 });
 
