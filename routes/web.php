@@ -65,7 +65,13 @@ Route::middleware(['auth', 'active.user'])->group(function () {
         Route::post('/devices/{device}/check-status', [DeviceController::class, 'checkStatus'])->name('devices.check_status');
         Route::post('/devices/{device}/reconnect', [DeviceController::class, 'reconnect'])->name('devices.reconnect');
         Route::resource('devices', DeviceController::class);
+        // Rute untuk Manajemen Massal Agen
+        Route::get('/agents/template', [App\Http\Controllers\AgentController::class, 'downloadTemplate'])->name('agents.template');
+        Route::post('/agents/import', [App\Http\Controllers\AgentController::class, 'import'])->name('agents.import');
+        Route::post('/agents/bulk-delete', [App\Http\Controllers\AgentController::class, 'bulkDelete'])->name('agents.bulk-delete');
 
+        // (Pastikan ini ada di bawah rute-rute di atas)
+        // Route::resource('agents', AgentController::class);
         // Manage Agents
         Route::resource('agents', AgentController::class);
     });

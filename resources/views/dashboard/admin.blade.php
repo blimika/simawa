@@ -7,27 +7,41 @@
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg mb-6">
+            <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
                 <div class="p-6 text-gray-900">
-                    Selamat datang, Admin {{ auth()->user()->name }}! (UID: {{ auth()->user()->user_uid }})
+            <div class="border-l-4 border-purple-500 pl-4 mb-4">
+                <h3 class="text-lg font-bold text-purple-700">Selamat datang, Admin {{ auth()->user()->name }}! (UID: {{ auth()->user()->user_uid }})</h3>
+                <p class="text-gray-600">Anda memiliki kendali penuh atas sistem SIMAWA. Anda dapat memantau seluruh aktivitas Agen, dan status koneksi semua Device WhatsApp.</p>
+            </div>
+            <!-- Kartu Statistik Singkat -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+                <div class="bg-purple-50 p-4 rounded-lg border border-purple-100 shadow-sm">
+                    <h4 class="font-semibold text-purple-800">Total Device</h4>
+                    <p class="text-3xl font-bold mt-2">{{ $totalDevice }}</p>
+                </div>
+                <div class="bg-blue-50 p-4 rounded-lg border border-blue-100 shadow-sm">
+                    <h4 class="font-semibold text-blue-800">Total Agen</h4>
+                    <p class="text-3xl font-bold mt-2">{{ $totalAgent }}</p>
+                </div>
+                <div class="bg-green-50 p-4 rounded-lg border border-green-100 shadow-sm">
+                    <h4 class="font-semibold text-green-800">Pesan Hari Ini</h4>
+                    <p class="text-3xl font-bold mt-2">{{ $pesanHariIni }}</p>
                 </div>
             </div>
 
-            <!-- Kartu Statistik Singkat -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-                    <h3 class="text-gray-500 text-sm font-medium">Total Device</h3>
-                    <p class="text-3xl font-bold text-gray-800">0</p>
-                </div>
-                <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-                    <h3 class="text-gray-500 text-sm font-medium">Total Agen</h3>
-                    <p class="text-3xl font-bold text-gray-800">0</p>
-                </div>
-                <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-                    <h3 class="text-gray-500 text-sm font-medium">Pesan Hari Ini</h3>
-                    <p class="text-3xl font-bold text-gray-800">0</p>
+            <div class="mt-8">
+                <h4 class="font-bold text-gray-700 mb-4">Aksi Cepat</h4>
+                <div class="flex gap-4">
+                    <a href="{{ route('devices.index') }}" class="bg-indigo-600 hover:bg-indigo-700 text-white py-2 px-4 rounded-md text-sm font-medium transition">
+                        Kelola Device WhatsApp
+                    </a>
+                    <a href="{{ route('agents.index') }}" class="bg-gray-600 hover:bg-gray-700 text-white py-2 px-4 rounded-md text-sm font-medium transition">
+                        Kelola Manajemen Agen
+                    </a>
                 </div>
             </div>
         </div>
+    </div>
+    </div>
     </div>
 </x-app-layout>
