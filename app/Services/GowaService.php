@@ -1,215 +1,510 @@
 <?php
+
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Service untuk komunikasi dengan API WhatsApp Gateway (GOWA v9).
+ * Dokumentasi OpenAPI: aldinokemal/go-whatsapp-web-multidevice (v9)
+ */
 class GowaService
 {
-    protected $baseUrl;
-    protected $authUser;
-    protected $authPass;
+    protected string $baseUrl;
+    protected ?string $authUser;
+    protected ?string $authPass;
 
     public function __construct()
     {
-        $this->baseUrl  = config('services.gowa.url');
+        $this->baseUrl  = rtrim(config('services.gowa.url', 'http://localhost:3000'), '/');
         $this->authUser = config('services.gowa.user');
         $this->authPass = config('services.gowa.pass');
     }
+
     /**
-     * STEP 1: Daftarkan Device ke GOWA secara otomatis saat Admin input
-     * Endpoint: POST /devices
+     * Mendapatkan URL dasar API GOWA
      */
-    public function createDevice($deviceId)
+    public function getBaseUrl(): string
+    {
+        return $this->baseUrl;
+    }
+
+    /**
+     * Base HTTP Client dengan Basic Auth
+     */
+    public function baseClient(int $timeout = 15)
+    {
+        $client = Http::timeout($timeout);
+        if ($this->authUser && $this->authPass) {
+            $client = $client->withBasicAuth($this->authUser, $this->authPass);
+        }
+        return $client;
+    }
+
+    /**
+     * Base HTTP Client dengan Basic Auth dan Header X-Device-Id
+     */
+    public function client(?string $deviceId = null, int $timeout = 15)
+    {
+        $client = $this->baseClient($timeout);
+        if ($deviceId) {
+            $client = $client->withHeaders(['X-Device-Id' => $deviceId]);
+        }
+        return $client;
+    }
+
+    /**
+     * STEP 1: Daftarkan Device Slot ke GOWA secara otomatis
+     * GOWA v9 Endpoint: POST /devices
+     */
+    public function createDevice(string $deviceId, array $options = []): ?array
     {
         try {
-            // Http facade Laravel otomatis mengirim sebagai raw JSON (application/json)
-            // ketika kita memberikan array ke method post()
-            $response = Http::withBasicAuth($this->authUser, $this->authPass)
-                ->timeout(10)
-                ->post($this->baseUrl . '/devices', [
-                    'device_id' => $deviceId
-                ]);
+            $payload = array_merge([
+                'device_id' => $deviceId,
+            ], $options);
 
+            $response = $this->baseClient(15)->post($this->baseUrl . '/devices', $payload);
             return $response->json();
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('GOWA API Error (Create Device): ' . $e->getMessage());
+            Log::error('GOWA API Error (Create Device): ' . $e->getMessage());
             return null;
         }
     }
-    public function getDevices()
+
+    /**
+     * Mengambil daftar seluruh device yang terdaftar di GOWA
+     * GOWA v9 Endpoint: GET /devices
+     */
+    public function getDevices(): ?array
     {
         try {
-            // Karena ini GET global, tidak butuh header X-Device-Id
-            $response = Http::withBasicAuth($this->authUser, $this->authPass)
-                ->timeout(10)
-                ->get($this->baseUrl . '/devices');
-
+            $response = $this->baseClient(15)->get($this->baseUrl . '/devices');
             return $response->json();
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('GOWA API Error (Get Devices): ' . $e->getMessage());
+            Log::error('GOWA API Error (Get Devices): ' . $e->getMessage());
             return null;
         }
     }
+
     /**
-     * Base HTTP Client dengan Auth dan Header X-Device-Id
+     * Mendapatkan informasi detail device tertentu
+     * GOWA v9 Endpoint: GET /devices/{device_id}
      */
-    protected function client($deviceId)
+    public function getDevice(string $deviceId): ?array
     {
-        return Http::withBasicAuth($this->authUser, $this->authPass)
-                   ->withHeaders(['X-Device-Id' => $deviceId])
-                   ->timeout(15);
+        try {
+            $response = $this->client($deviceId)->get($this->baseUrl . '/devices/' . urlencode($deviceId));
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Get Device): ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Cek status koneksi spesifik untuk 1 device (Mengembalikan Response object)
+     * GOWA v9 Endpoint: GET /devices/{device_id}
+     */
+    public function getDeviceStatus(string $deviceId)
+    {
+        return $this->client($deviceId)->get($this->baseUrl . '/devices/' . urlencode($deviceId));
+    }
+
+    /**
+     * Mengecek status login spesifik untuk 1 device
+     * Mendukung endpoint v9 /devices/{device_id} dan fallback /devices/{device_id}/status atau /app/status
+     */
+    public function checkDeviceStatus(string $deviceId): ?array
+    {
+        try {
+            // Coba endpoint v9 /devices/{device_id} terlebih dahulu
+            $response = $this->client($deviceId)->get($this->baseUrl . '/devices/' . urlencode($deviceId));
+
+            if ($response->successful()) {
+                $data = $response->json();
+                $results = $data['results'] ?? [];
+
+                // Normalisasi status login
+                $state = strtolower($results['state'] ?? '');
+                $isLoggedIn = $results['is_logged_in'] ?? ($state === 'logged_in');
+                $isConnected = $results['is_connected'] ?? in_array($state, ['connected', 'logged_in']);
+
+                $data['results']['is_logged_in'] = $isLoggedIn;
+                $data['results']['is_connected'] = $isConnected;
+
+                return [
+                    'http_status' => $response->status(),
+                    'json_data'   => $data,
+                ];
+            }
+
+            // Fallback ke /devices/{device_id}/status jika perlu
+            $responseStatus = $this->client($deviceId)->get($this->baseUrl . '/devices/' . urlencode($deviceId) . '/status');
+            if ($responseStatus->successful()) {
+                return [
+                    'http_status' => $responseStatus->status(),
+                    'json_data'   => $responseStatus->json(),
+                ];
+            }
+
+            // Fallback terakhir ke /app/status dengan header X-Device-Id
+            $responseApp = $this->client($deviceId)->get($this->baseUrl . '/app/status');
+            return [
+                'http_status' => $responseApp->status(),
+                'json_data'   => $responseApp->json(),
+            ];
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Check Device Status): ' . $e->getMessage());
+            return null;
+        }
     }
 
     /**
      * Meminta Login / Pairing (QR Code)
-     * Endpoint asumsikan POST /app/login
+     * GOWA v9 Endpoint: GET /devices/{device_id}/login (fallback: GET /app/login)
      */
-    public function getLoginCode($deviceId)
+    public function getLoginCode(string $deviceId): ?array
     {
         try {
-            $response = $this->client($deviceId)->get($this->baseUrl . '/app/login');
+            // Endpoint resmi GOWA v9 untuk device-specific QR login
+            $response = $this->client($deviceId)->get($this->baseUrl . '/devices/' . urlencode($deviceId) . '/login');
 
-            // PAKSA TERJEMAHKAN TEKS RAW MENJADI ARRAY JSON
-            // Ini akan mengatasi masalah null jika GOWA tidak mengirimkan header yang tepat
-            $decodedJson = json_decode($response->body(), true);
+            // Fallback ke /app/login jika endpoint device login mengembalikan 404
+            if ($response->status() === 404) {
+                $response = $this->client($deviceId)->get($this->baseUrl . '/app/login');
+            }
 
-            return $decodedJson;
-        } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('GOWA API Error (Get Login): ' . $e->getMessage());
-            return null;
-        }
-    }
-    /**
-     * Menghapus session di server GOWA
-     * Endpoint: DELETE /app/logout atau /devices tergantung versi
-     * Kita gunakan DELETE /devices/{id} sesuai standar REST
-     */
-    public function deleteDevice($deviceId)
-    {
-        try {
-            $response = $this->client($deviceId)->delete($this->baseUrl . '/devices/' . $deviceId);
+            $decoded = json_decode($response->body(), true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+
             return $response->json();
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('GOWA API Error (Delete): ' . $e->getMessage());
+            Log::error('GOWA API Error (Get Login Code): ' . $e->getMessage());
             return null;
         }
     }
+
     /**
-     * Mengecek status login spesifik untuk 1 device
-     * Endpoint: GET /app/status
+     * Meminta Pairing Code untuk login menggunakan nomor HP (Fitur GOWA v9)
+     * GOWA v9 Endpoint: POST /devices/{device_id}/login/code?phone={phone}
      */
-    public function checkDeviceStatus($deviceId)
+    public function getPairingCode(string $deviceId, string $phone): ?array
     {
         try {
-            // Gunakan method client() agar header X-Device-Id otomatis ikut terkirim
-            $response = $this->client($deviceId)->get($this->baseUrl . '/app/status');
+            $response = $this->client($deviceId)->post(
+                $this->baseUrl . '/devices/' . urlencode($deviceId) . '/login/code?phone=' . urlencode($phone)
+            );
 
-            return [
-                'http_status' => $response->status(),
-                'json_data'   => $response->json()
-            ];
+            if ($response->status() === 404) {
+                $response = $this->client($deviceId)->get(
+                    $this->baseUrl . '/app/login-with-code?phone=' . urlencode($phone)
+                );
+            }
+
+            return $response->json();
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('GOWA API Error (App Status): ' . $e->getMessage());
+            Log::error('GOWA API Error (Get Pairing Code): ' . $e->getMessage());
             return null;
         }
     }
+
+    /**
+     * Menghubungkan ulang device ke server WhatsApp
+     * GOWA v9 Endpoint: POST /devices/{device_id}/reconnect
+     */
+    public function reconnectDevice(string $deviceId)
+    {
+        try {
+            $response = $this->client($deviceId)->post($this->baseUrl . '/devices/' . urlencode($deviceId) . '/reconnect');
+
+            if ($response->status() === 404) {
+                $response = $this->client($deviceId)->get($this->baseUrl . '/app/reconnect');
+            }
+
+            return $response;
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Reconnect Device): ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Logout sesi device tanpa menghapus slot device di GOWA
+     * GOWA v9 Endpoint: POST /devices/{device_id}/logout
+     */
+    public function logoutDevice(string $deviceId)
+    {
+        try {
+            $response = $this->client($deviceId)->post($this->baseUrl . '/devices/' . urlencode($deviceId) . '/logout');
+
+            if ($response->status() === 404) {
+                $response = $this->client($deviceId)->get($this->baseUrl . '/app/logout');
+            }
+
+            return $response;
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Logout Device): ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Menghapus slot device dari server GOWA dan membersihkan sesi
+     * GOWA v9 Endpoint: DELETE /devices/{device_id}
+     */
+    public function deleteDevice(string $deviceId): ?array
+    {
+        try {
+            $response = $this->client($deviceId)->delete($this->baseUrl . '/devices/' . urlencode($deviceId));
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Delete Device): ' . $e->getMessage());
+            return null;
+        }
+    }
+
     /**
      * Mengirim Pesan Teks
+     * GOWA v9 Endpoint: POST /send/message
      */
-    public function sendTextMessage($deviceId, $phone, $message)
+    public function sendMessage(string $deviceId, string $phone, string $message, ?string $replyMessageId = null)
+    {
+        $payload = [
+            'phone'   => $phone,
+            'message' => $message,
+        ];
+
+        if (!empty($replyMessageId)) {
+            $payload['reply_message_id'] = $replyMessageId;
+        }
+
+        return $this->client($deviceId)->post($this->baseUrl . '/send/message', $payload);
+    }
+
+    /**
+     * Alias method untuk sendTextMessage (mengembalikan array JSON)
+     */
+    public function sendTextMessage(string $deviceId, string $phone, string $message, ?string $replyMessageId = null): ?array
     {
         try {
-            $response = $this->client($deviceId)->post($this->baseUrl . '/send/message', [
-                'phone'   => $phone,
-                'message' => $message,
-                'isGroup' => false
-            ]);
+            $response = $this->sendMessage($deviceId, $phone, $message, $replyMessageId);
             return $response->json();
         } catch (\Exception $e) {
             Log::error('GOWA API Error (Send Msg): ' . $e->getMessage());
             return null;
         }
     }
-    /**
-     * Cek status device berdasarkan Session ID
-     */
-    public function getDeviceStatus_lama($sessionId)
-    {
-        // Menggabungkan $this->baseUrl dengan endpoint devices
-        //return $this->client($sessionId)->get($this->baseUrl . '/devices/' . $sessionId);
-        try {
-            $response = $this->client($sessionId)->get($this->baseUrl . '/devices/' . $sessionId);
 
-            // PAKSA TERJEMAHKAN TEKS RAW MENJADI ARRAY JSON
-            // Ini akan mengatasi masalah null jika GOWA tidak mengirimkan header yang tepat
-            // $decodedJson = json_decode($response->body(), true);
-            //return $decodedJson;
-            return $response->json();
-        } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('GOWA API Error (Get Device Status): ' . $e->getMessage());
-            return null;
-        }
-    }
-    public function getDeviceStatus($sessionId)
-    {
-        // JANGAN tambahkan ->json() di sini
-        return $this->client($sessionId)->get($this->baseUrl . '/devices/' . $sessionId);
-    }
-    public function sendMessage($sessionId, $number, $message)
-    {
-        return $this->client($sessionId)->post($this->baseUrl . '/send/message', [
-            'phone' => $number,
-            'isGroup' => false,
-            'message' => $message
-        ]);
-    }
     /**
-     * Mengirim File / Gambar / Dokumen (Multipart Form-Data)
+     * Mengirim File / Dokumen (Multipart Form-Data)
+     * GOWA v9 Endpoint: POST /send/file
      */
-    public function sendFile($sessionId, $phone, $fileContents, $fileName, $caption = '')
+    public function sendFile(string $deviceId, string $phone, string $fileContents, string $fileName, string $caption = '', ?string $replyMessageId = null)
     {
         try {
-            // Gunakan fungsi client() bawaan Anda untuk menyematkan Auth & Header otomatis
-            return $this->client($sessionId)
-                ->timeout(60) // Perpanjang timeout khusus untuk upload file
-                ->attach('file', $fileContents, $fileName)
-                ->post($this->baseUrl . '/send/file', [
-                    'phone' => $phone,
-                    'caption' => $caption
-                ]);
-        } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('GOWA API Error (Send File): ' . $e->getMessage());
-            throw $e; // Lempar error ke Controller agar bisa ditangkap oleh API response
-        }
-    }
-    /**
-     * Mengirim Gambar Khusus (Multipart Form-Data)
-     * Endpoint: /send/image
-     */
-    public function sendImage($sessionId, $phone, $imageContents, $imageName, $caption = '', $options = [])
-    {
-        try {
-            // Base payload sesuai dokumentasi Swagger
             $payload = [
                 'phone'   => $phone,
                 'caption' => $caption,
             ];
 
-            // Menggabungkan parameter opsional seperti compress, view_once, dll
+            if (!empty($replyMessageId)) {
+                $payload['reply_message_id'] = $replyMessageId;
+            }
+
+            return $this->client($deviceId)
+                ->timeout(60)
+                ->attach('file', $fileContents, $fileName)
+                ->post($this->baseUrl . '/send/file', $payload);
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Send File): ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Mengirim File menggunakan URL langsung (GOWA v9 fitur file_url)
+     * GOWA v9 Endpoint: POST /send/file
+     */
+    public function sendFileUrl(string $deviceId, string $phone, string $fileUrl, string $caption = '', ?string $replyMessageId = null)
+    {
+        try {
+            $payload = [
+                'phone'    => $phone,
+                'file_url' => $fileUrl,
+                'caption'  => $caption,
+            ];
+
+            if (!empty($replyMessageId)) {
+                $payload['reply_message_id'] = $replyMessageId;
+            }
+
+            return $this->client($deviceId)
+                ->timeout(60)
+                ->post($this->baseUrl . '/send/file', $payload);
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Send File URL): ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Mengirim Gambar Khusus (Multipart Form-Data)
+     * GOWA v9 Endpoint: POST /send/image
+     */
+    public function sendImage(string $deviceId, string $phone, string $imageContents, string $imageName, string $caption = '', array $options = [])
+    {
+        try {
+            $payload = [
+                'phone'   => $phone,
+                'caption' => $caption,
+            ];
+
             if (!empty($options)) {
                 $payload = array_merge($payload, $options);
             }
 
-            return $this->client($sessionId)
+            return $this->client($deviceId)
                 ->timeout(60)
-                // PERHATIKAN: Key di sini adalah 'image', sesuai dengan spec GOWA
                 ->attach('image', $imageContents, $imageName)
                 ->post($this->baseUrl . '/send/image', $payload);
-
         } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('GOWA API Error (Send Image): ' . $e->getMessage());
+            Log::error('GOWA API Error (Send Image): ' . $e->getMessage());
             throw $e;
+        }
+    }
+
+    /**
+     * Mengirim Gambar menggunakan URL langsung (GOWA v9 fitur image_url)
+     * GOWA v9 Endpoint: POST /send/image
+     */
+    public function sendImageUrl(string $deviceId, string $phone, string $imageUrl, string $caption = '', array $options = [])
+    {
+        try {
+            $payload = [
+                'phone'     => $phone,
+                'image_url' => $imageUrl,
+                'caption'   => $caption,
+            ];
+
+            if (!empty($options)) {
+                $payload = array_merge($payload, $options);
+            }
+
+            return $this->client($deviceId)
+                ->timeout(60)
+                ->post($this->baseUrl . '/send/image', $payload);
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Send Image URL): ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Download media dari pesan WhatsApp (Fitur GOWA v9)
+     * GOWA v9 Endpoint: GET /message/{message_id}/download?phone={phone}
+     */
+    public function downloadMedia(string $deviceId, string $messageId, string $phone)
+    {
+        try {
+            return $this->client($deviceId)
+                ->timeout(60)
+                ->get($this->baseUrl . '/message/' . urlencode($messageId) . '/download', [
+                    'phone' => $phone,
+                ]);
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Download Media): ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Mengecek status tantangan Passkey (WebAuthn) pada GOWA v9
+     * GOWA v9 Endpoint: GET /app/passkey
+     */
+    public function getPasskeyStatus(string $deviceId): ?array
+    {
+        try {
+            $response = $this->client($deviceId)->get($this->baseUrl . '/app/passkey');
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Get Passkey Status): ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Mengonfirmasi kode pairing Passkey ke GOWA v9
+     * GOWA v9 Endpoint: POST /app/passkey/confirm
+     */
+    public function confirmPasskey(string $deviceId)
+    {
+        try {
+            return $this->client($deviceId)->post($this->baseUrl . '/app/passkey/confirm');
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Confirm Passkey): ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Mengirimkan WebAuthn assertion untuk Passkey pairing ke GOWA v9
+     * GOWA v9 Endpoint: POST /app/passkey/response
+     */
+    public function submitPasskeyResponse(string $deviceId, array $assertion)
+    {
+        try {
+            return $this->client($deviceId)->post($this->baseUrl . '/app/passkey/response', $assertion);
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Submit Passkey Response): ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Mengambil konfigurasi webhook spesifik device
+     * GOWA v9 Endpoint: GET /devices/{device_id}/webhook
+     */
+    public function getDeviceWebhook(string $deviceId): ?array
+    {
+        try {
+            $response = $this->client($deviceId)->get($this->baseUrl . '/devices/' . urlencode($deviceId) . '/webhook');
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Get Device Webhook): ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Mengatur konfigurasi webhook spesifik device
+     * GOWA v9 Endpoint: PATCH /devices/{device_id}/webhook
+     */
+    public function setDeviceWebhook(string $deviceId, string $webhookUrl, ?string $secret = null, ?string $events = null, bool $insecureSkipVerify = false): ?array
+    {
+        try {
+            $payload = [
+                'webhook_url' => $webhookUrl,
+            ];
+
+            if ($secret !== null) {
+                $payload['webhook_secret'] = $secret;
+            }
+            if ($events !== null) {
+                $payload['webhook_events'] = $events;
+            }
+            if ($insecureSkipVerify) {
+                $payload['webhook_insecure_skip_verify'] = true;
+            }
+
+            $response = $this->client($deviceId)->patch($this->baseUrl . '/devices/' . urlencode($deviceId) . '/webhook', $payload);
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Set Device Webhook): ' . $e->getMessage());
+            return null;
         }
     }
 }

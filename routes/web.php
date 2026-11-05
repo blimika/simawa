@@ -43,6 +43,8 @@ Route::middleware(['auth', 'active.user'])->group(function () {
 
         Route::post('/devices/{device}/check-status', [DeviceController::class, 'checkStatus'])->name('devices.check_status');
         Route::post('/devices/{device}/reconnect', [DeviceController::class, 'reconnect'])->name('devices.reconnect');
+        Route::post('/devices/{device}/logout', [DeviceController::class, 'logout'])->name('devices.logout');
+        Route::post('/devices/{device}/passkey-confirm', [DeviceController::class, 'passkeyConfirm'])->name('devices.passkey_confirm');
 
         // Rute Default CRUD Device
         Route::resource('devices', DeviceController::class);
@@ -61,9 +63,13 @@ Route::middleware(['auth', 'active.user'])->group(function () {
         Route::put('devices/{device}', [App\Http\Controllers\DeviceController::class, 'update'])->name('devices.update');
         Route::get('/devices/{device}/scan', [DeviceController::class, 'scan'])->name('devices.scan');
         Route::post('/devices/{device}/request-qr', [DeviceController::class, 'requestQr'])->name('devices.request_qr');
+        Route::post('/devices/{device}/request-pairing-code', [DeviceController::class, 'requestPairingCode'])->name('devices.request_pairing_code');
         Route::get('/devices/{device}/status-json', [DeviceController::class, 'statusJson'])->name('devices.status_json');
         Route::post('/devices/{device}/check-status', [DeviceController::class, 'checkStatus'])->name('devices.check_status');
         Route::post('/devices/{device}/reconnect', [DeviceController::class, 'reconnect'])->name('devices.reconnect');
+        Route::post('/devices/{device}/logout', [DeviceController::class, 'logout'])->name('devices.logout');
+        Route::post('/devices/{device}/passkey-confirm', [DeviceController::class, 'passkeyConfirm'])->name('devices.passkey_confirm');
+        Route::post('/devices/{device}/passkey-response', [DeviceController::class, 'passkeyResponse'])->name('devices.passkey_response');
         Route::resource('devices', DeviceController::class);
         // Rute untuk Manajemen Massal Agen
         Route::get('/agents/template', [App\Http\Controllers\AgentController::class, 'downloadTemplate'])->name('agents.template');

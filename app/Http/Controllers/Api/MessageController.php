@@ -53,24 +53,53 @@ class MessageController extends Controller
                 $response = $gowa->sendMessage($device->gowa_session_id, $formattedPhone, $request->message);
             }
             else {
-                // Siapkan file
+                // Siapkan file / image
                 if ($request->hasFile('file')) {
                     $uploadedFile = $request->file('file');
                     $fileContents = file_get_contents($uploadedFile->getRealPath());
                     $fileName = $uploadedFile->getClientOriginalName();
-                } else {
-                    $fileContents = file_get_contents($request->url);
-                    $fileName = basename(parse_url($request->url, PHP_URL_PATH)) ?: 'document.file';
-                }
+                    $extension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+                    $imageExtensions = ['jpg', 'jpeg', 'png', 'webp'];
 
-                // Memanggil fungsi sendFile yang baru saja kita buat di GowaService
-                $response = $gowa->sendFile(
-                    $device->gowa_session_id,
-                    $formattedPhone,
-                    $fileContents,
-                    $fileName,
-                    $request->message ?? ''
-                );
+                    if (in_array($extension, $imageExtensions)) {
+                        $response = $gowa->sendImage(
+                            $device->gowa_session_id,
+                            $formattedPhone,
+                            $fileContents,
+                            $fileName,
+                            $request->message ?? ''
+                        );
+                    } else {
+                        $response = $gowa->sendFile(
+                            $device->gowa_session_id,
+                            $formattedPhone,
+                            $fileContents,
+                            $fileName,
+                            $request->message ?? ''
+                        );
+                    }
+                } else {
+                    $fileUrl = $request->url;
+                    $fileName = basename(parse_url($fileUrl, PHP_URL_PATH)) ?: 'document.file';
+                    $extension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+                    $imageExtensions = ['jpg', 'jpeg', 'png', 'webp'];
+
+                    if (in_array($extension, $imageExtensions)) {
+                        $response = $gowa->sendImageUrl(
+                            $device->gowa_session_id,
+                            $formattedPhone,
+                            $fileUrl,
+                            $request->message ?? ''
+                        );
+                    } else {
+                        $response = $gowa->sendFileUrl(
+                            $device->gowa_session_id,
+                            $formattedPhone,
+                            $fileUrl,
+                            $request->message ?? ''
+                        );
+                    }
+                }
             }
 
             // =========================================================

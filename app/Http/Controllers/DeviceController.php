@@ -188,22 +188,50 @@ class DeviceController extends Controller
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
-        // Panggil service GOWA
+        // 1. Cek status real di GOWA terlebih dahulu apakah device memang SUDAH login
+        $statusCheck = $gowa->checkDeviceStatus($device->gowa_session_id);
+        $alreadyLoggedIn = data_get($statusCheck, 'json_data.results.is_logged_in', false);
+
+        if ($alreadyLoggedIn) {
+            if ($device->status !== 'connected') {
+                $device->update(['status' => 'connected']);
+            }
+            return response()->json([
+                'status'  => 'already_logged_in',
+                'message' => 'Device sudah terhubung ke WhatsApp.',
+                'data'    => $statusCheck['json_data'] ?? null
+            ]);
+        }
+
+        // Jika belum login, pastikan status di SIMAWA bukan 'connected'
+        if ($device->status === 'connected') {
+            $device->update(['status' => 'disconnected']);
+        }
+
+        // 2. Minta QR code baru ke GOWA v9
         $gowaResponse = $gowa->getLoginCode($device->gowa_session_id);
 
+        // Jika GOWA melaporkan device already logged in
+        $message = strtolower($gowaResponse['message'] ?? '');
+        if (str_contains($message, 'already logged')) {
+            $device->update(['status' => 'connected']);
+            return response()->json([
+                'status'  => 'already_logged_in',
+                'message' => 'Device sudah terhubung ke WhatsApp.',
+                'data'    => $gowaResponse
+            ]);
+        }
+
         // =========================================================================
-        // TRIK ANTI MIXED-CONTENT: Ubah semua URL HTTP gambar menjadi Base64
+        // TRIK ANTI MIXED-CONTENT: Ubah semua URL HTTP/HTTPS gambar menjadi Base64
+        // Gunakan client GOWA dengan Basic Auth agar berhasil mengunduh QR dari server
         // =========================================================================
         if (is_array($gowaResponse)) {
-            array_walk_recursive($gowaResponse, function(&$value, $key) {
-                // Jika value berupa teks, berawalan http://, dan berakhiran .png
-                if (is_string($value) && str_starts_with($value, 'http://') && str_ends_with(strtolower($value), '.png')) {
+            array_walk_recursive($gowaResponse, function(&$value, $key) use ($gowa) {
+                if (is_string($value) && (str_starts_with($value, 'http://') || str_starts_with($value, 'https://')) && str_ends_with(strtolower($value), '.png')) {
                     try {
-                        // Download gambar secara diam-diam via backend Laravel
-                        $imageResponse = \Illuminate\Support\Facades\Http::timeout(10)->get($value);
-                        
+                        $imageResponse = $gowa->baseClient(10)->get($value);
                         if ($imageResponse->successful()) {
-                            // Timpa URL dengan teks Base64 (Format Data URI)
                             $value = 'data:image/png;base64,' . base64_encode($imageResponse->body());
                         }
                     } catch (\Exception $e) {
@@ -213,29 +241,34 @@ class DeviceController extends Controller
             });
         }
 
-        // Kirimkan balikan ke frontend
         return response()->json([
             'status' => 'success',
             'data'   => $gowaResponse
         ]);
     }
+
     // Fungsi untuk tombol Check Status di halaman tabel Device
     public function checkStatus(Device $device, GowaService $gowa)
     {
-        // Panggil endpoint /app/status GOWA
         $response = $gowa->checkDeviceStatus($device->gowa_session_id);
 
         if ($response && $response['http_status'] === 200 && isset($response['json_data']['code']) && $response['json_data']['code'] === 'SUCCESS') {
-
-            // Ambil nilai is_logged_in (true / false)
-            $isLoggedIn = $response['json_data']['results']['is_logged_in'] ?? false;
+            $results = $response['json_data']['results'] ?? [];
+            $state = strtolower($results['state'] ?? '');
+            $isLoggedIn = $results['is_logged_in'] ?? ($state === 'logged_in');
 
             $newStatus = $isLoggedIn ? 'connected' : 'disconnected';
+            $updateData = ['status' => $newStatus];
 
-            // Update database SIMAWA jika ada perubahan
-            if ($device->status !== $newStatus) {
-                $device->update(['status' => $newStatus]);
+            $phone = $results['phone_number'] ?? null;
+            if (!$phone && !empty($results['jid'])) {
+                $phone = explode('@', explode(':', $results['jid'])[0])[0];
             }
+            if ($phone && $device->phone_number !== $phone) {
+                $updateData['phone_number'] = $phone;
+            }
+
+            $device->update($updateData);
 
             if ($newStatus === 'connected') {
                 return back()->with('success', 'Sinkronisasi berhasil: Device Anda SEDANG TERHUBUNG (Logged In).');
@@ -249,10 +282,103 @@ class DeviceController extends Controller
 
     public function reconnect(Device $device, GowaService $gowa)
     {
-        // Logika untuk menembak endpoint reconnect GOWA (misal POST /app/reconnect)
+        try {
+            $response = $gowa->reconnectDevice($device->gowa_session_id);
+            if ($response && $response->successful()) {
+                return back()->with('success', 'Perintah reconnect berhasil dikirim ke server GOWA untuk device ' . $device->name . '.');
+            }
 
-        return back()->with('success', 'Perintah reconnect dikirim ke device ' . $device->name . '.');
+            $errMessage = $response ? ($response->json('message') ?? $response->body()) : 'Server GOWA tidak merespon';
+            return back()->with('error', 'Gagal reconnect ke GOWA: ' . $errMessage);
+        } catch (\Exception $e) {
+            return back()->with('error', 'Terjadi kesalahan saat reconnect: ' . $e->getMessage());
+        }
     }
+
+    public function logout(Device $device, GowaService $gowa)
+    {
+        try {
+            $response = $gowa->logoutDevice($device->gowa_session_id);
+            $device->update(['status' => 'disconnected']);
+            return back()->with('success', 'Sesi WhatsApp pada device ' . $device->name . ' berhasil diputus (Logout).');
+        } catch (\Exception $e) {
+            return back()->with('error', 'Terjadi kesalahan saat logout: ' . $e->getMessage());
+        }
+    }
+
+    public function passkeyConfirm(Device $device, GowaService $gowa)
+    {
+        try {
+            $response = $gowa->confirmPasskey($device->gowa_session_id);
+            if ($response && $response->successful()) {
+                return response()->json(['status' => 'success', 'message' => 'Konfirmasi passkey berhasil dikirim ke server GOWA.']);
+            }
+            return response()->json(['status' => 'error', 'message' => 'Gagal konfirmasi passkey ke GOWA.'], 400);
+        } catch (\Exception $e) {
+            return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function passkeyResponse(Device $device, Request $request, GowaService $gowa)
+    {
+        try {
+            $response = $gowa->submitPasskeyResponse($device->gowa_session_id, $request->all());
+            if ($response && $response->successful()) {
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Passkey assertion berhasil dikirim.',
+                    'data' => $response->json(),
+                ]);
+            }
+            $errMsg = $response ? ($response->json('message') ?? $response->body()) : 'Gagal mengirim assertion ke GOWA';
+            return response()->json(['status' => 'error', 'message' => $errMsg], 400);
+        } catch (\Exception $e) {
+            return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function requestPairingCode(Device $device, Request $request, GowaService $gowa)
+    {
+        $request->validate([
+            'phone_number' => 'required|string',
+        ]);
+
+        $phone = preg_replace('/[^0-9]/', '', $request->phone_number);
+        if (empty($phone)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Nomor WhatsApp tidak valid.',
+            ], 422);
+        }
+
+        if (str_starts_with($phone, '0')) {
+            $phone = '62' . substr($phone, 1);
+        }
+
+        $res = $gowa->getPairingCode($device->gowa_session_id, $phone);
+
+        if ($res && ((isset($res['code']) && $res['code'] === 'SUCCESS') || isset($res['results']['pair_code']))) {
+            $pairCode = $res['results']['pair_code'] ?? null;
+            if ($pairCode) {
+                if ($device->phone_number !== $phone) {
+                    $device->update(['phone_number' => $phone]);
+                }
+                return response()->json([
+                    'status' => 'success',
+                    'pair_code' => $pairCode,
+                    'phone' => $phone,
+                    'data' => $res,
+                ]);
+            }
+        }
+
+        $message = $res['message'] ?? 'Gagal membuat kode pairing WhatsApp dari server GOWA.';
+        return response()->json([
+            'status' => 'error',
+            'message' => $message,
+        ], 400);
+    }
+
     public function statusJson(Device $device, GowaService $gowa)
     {
         try {
@@ -262,19 +388,24 @@ class DeviceController extends Controller
 
             $response = $gowa->getDeviceStatus($device->gowa_session_id);
 
-            if ($response->successful()) {
+            if ($response && $response->successful()) {
                 $data = $response->json();
-                $apiState = strtolower($data['results']['state'] ?? $data['state'] ?? 'disconnected');
+                $results = $data['results'] ?? $data;
+                $apiState = strtolower($results['state'] ?? '');
+                // Di GOWA: 'connected' = socket terhubung ke server WhatsApp, BELUM scan QR/login.
+                // Device BARU dianggap logged in jika state == 'logged_in', is_logged_in == true, atau jid terisi.
+                $isLoggedIn = ($apiState === 'logged_in') || (!empty($results['is_logged_in'])) || (!empty($results['jid']));
 
-                if (in_array($apiState, ['logged_in'])) {
+                if ($isLoggedIn) {
                     $status = 'connected';
 
-                    $jid = $data['results']['jid'] ?? $data['jid'] ?? null;
-                    if ($jid) {
-                        $cleanNumber = explode('@', explode(':', $jid)[0])[0];
-                        if ($device->phone_number !== $cleanNumber) {
-                            $device->update(['phone_number' => $cleanNumber]);
-                        }
+                    $jid = $results['jid'] ?? null;
+                    $phone = $results['phone_number'] ?? null;
+                    if (!$phone && $jid) {
+                        $phone = explode('@', explode(':', $jid)[0])[0];
+                    }
+                    if ($phone && $device->phone_number !== $phone) {
+                        $device->update(['phone_number' => $phone]);
                     }
 
                     if ($device->status !== $status) {
@@ -282,97 +413,106 @@ class DeviceController extends Controller
                     }
 
                     return response()->json(['status' => $status, 'phone_number' => $device->phone_number]);
+                } else {
+                    if ($device->status !== 'disconnected') {
+                        $device->update(['status' => 'disconnected']);
+                    }
+
+                    // Cek apakah WhatsApp mengirimkan tantangan Passkey (WebAuthn / Confirmation Code)
+                    $passkeyInfo = null;
+                    try {
+                        $passkeyCheck = $gowa->getPasskeyStatus($device->gowa_session_id);
+                        if ($passkeyCheck && isset($passkeyCheck['results'])) {
+                            $pkResults = $passkeyCheck['results'];
+                            $pkStatus = $pkResults['status'] ?? 'none';
+                            if ($pkStatus !== 'none') {
+                                $passkeyInfo = [
+                                    'status' => $pkStatus,
+                                    'code'   => $pkResults['code'] ?? null,
+                                ];
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        // Abaikan jika endpoint passkey gagal
+                    }
+
+                    return response()->json([
+                        'status' => 'disconnected',
+                        'phone_number' => $device->phone_number,
+                        'passkey' => $passkeyInfo,
+                    ]);
                 }
             } else {
-                // ======== BAGIAN PERBAIKAN UNTUK "NOT FOUND" ========
-                $errorData = $response->json();
-
-                // Jika GOWA membalas "device not found", paksa status ke disconnected di DB
+                $errorData = $response ? $response->json() : [];
                 if (isset($errorData['message']) && str_contains(strtolower($errorData['message']), 'not found')) {
                     if ($device->status !== 'disconnected') {
                         $device->update(['status' => 'disconnected']);
                     }
-                    \Log::warning("Session GOWA [{$device->gowa_session_id}] hilang. User perlu scan ulang.");
-                } else {
+                    \Log::warning("Session GOWA [{$device->gowa_session_id}] tidak ditemukan di GOWA.");
+                } else if ($response) {
                     \Log::error('GOWA HTTP Error: ' . $response->status() . ' - ' . $response->body());
                 }
             }
-
         } catch (\Exception $e) {
-        \Log::error('Koneksi GOWA Error: ' . $e->getMessage());
+            \Log::error('Koneksi GOWA Error: ' . $e->getMessage());
         }
 
-        // Pastikan fallback ini selalu mengembalikan kunci 'status'
         return response()->json([
-            'status' => 'disconnected', // JANGAN sampai null atau undefined
+            'status' => 'disconnected',
             'phone_number' => $device->phone_number ?? '-'
         ]);
     }
+
     /**
-     * SINKRONISASI DAFTAR DEVICE DARI SERVER GOWA
+     * SINKRONISASI DAFTAR DEVICE DARI SERVER GOWA (v9)
      */
-    public function syncDevices()
+    public function syncDevices(GowaService $gowa)
     {
-        // 1. Proteksi Keamanan: Pastikan hanya Super Admin yang bisa mengakses fungsi ini
         if (!auth()->user()->isSuperadmin()) {
             abort(403, 'Hanya Super Admin yang diizinkan melakukan sinkronisasi device.');
         }
 
-        // 2. Ambil Kredensial API GOWA dari file .env
-        $gowaBaseUrl = env('GOWA_API_URL', 'http://localhost:5271');
-        $gowaUser = env('GOWA_BASIC_USER', 'kota');
-        $gowaPass = env('GOWA_BASIC_PASS', 'kota');
-
         try {
-            // 3. Request data list device ke GOWA
-            $response = \Illuminate\Support\Facades\Http::withBasicAuth($gowaUser, $gowaPass)
-                ->timeout(10)
-                ->get(rtrim($gowaBaseUrl, '/') . '/devices');
+            $data = $gowa->getDevices();
 
-            if ($response->successful()) {
-                $results = $response->json('results') ?? [];
+            if ($data && isset($data['code']) && $data['code'] === 'SUCCESS') {
+                $results = $data['results'] ?? [];
                 $inserted = 0;
                 $updated = 0;
 
-                // 4. Looping data hasil dari GOWA
                 foreach ($results as $res) {
-                    $gowaId = $res['id'];
-                    $gowaState = $res['state'];
+                    $gowaId = $res['id'] ?? $res['device'] ?? null;
+                    if (!$gowaId) continue;
 
-                    // Konversi Status: 'logged_in' dari GOWA diubah menjadi 'connected' agar sesuai dengan SIMAWA
-                    $simawaStatus = ($gowaState === 'logged_in') ? 'connected' : 'disconnected';
+                    $gowaState = strtolower($res['state'] ?? 'disconnected');
+                    $isLoggedIn = $res['is_logged_in'] ?? ($gowaState === 'logged_in');
+                    $simawaStatus = $isLoggedIn ? 'connected' : 'disconnected';
 
-                    // Ekstrak nomor HP dari JID (misal: 6281803635400@s.whatsapp.net menjadi 6281803635400)
-                    $phoneNumber = null;
-                    if (!empty($res['jid'])) {
-                        $phoneNumber = explode('@', $res['jid'])[0];
+                    $phoneNumber = $res['phone_number'] ?? null;
+                    if (empty($phoneNumber) && !empty($res['jid'])) {
+                        $phoneNumber = explode('@', explode(':', $res['jid'])[0])[0];
                     }
 
-                    // Tentukan Nama: Ambil display_name, jika null gunakan ID session sebagai nama default
-                    $deviceName = $res['display_name'] ?? $gowaId;
+                    $deviceName = $res['display_name'] ?? $res['name'] ?? $gowaId;
 
-                    // 5. Cek apakah device sudah terdaftar di SIMAWA
-                    $device = \App\Models\Device::where('gowa_session_id', $gowaId)->first();
+                    $device = Device::where('gowa_session_id', $gowaId)->first();
 
                     if ($device) {
-                        // KONDISI A: Device SUDAH ADA -> Cukup update status dan nomor HP jika terdeteksi logged_in
                         $updateData = ['status' => $simawaStatus];
                         if (!empty($phoneNumber)) {
                             $updateData['phone_number'] = $phoneNumber;
                         }
-
                         $device->update($updateData);
                         $updated++;
                     } else {
-                        // KONDISI B: Device BELUM ADA -> Otomatis buat data device baru di SIMAWA
-                        \App\Models\Device::create([
+                        Device::create([
                             'name' => $deviceName,
                             'phone_number' => $phoneNumber ?? '',
                             'gowa_session_id' => $gowaId,
                             'status' => $simawaStatus,
                             'webhook_url' => null,
-                            'is_livechat_enabled' => true, // default diaktifkan livechatnya
-                            'user_id' => auth()->id(), // Otomatis dikunci kepemilikannya ke Superadmin yang melakukan sync
+                            'is_livechat_enabled' => true,
+                            'user_id' => auth()->id(),
                         ]);
                         $inserted++;
                     }
@@ -381,8 +521,7 @@ class DeviceController extends Controller
                 return back()->with('success', "Sinkronisasi Berhasil! Berhasil menambah {$inserted} device baru dan memperbarui {$updated} status device.");
             }
 
-            return back()->with('error', 'Gagal terhubung dengan server GOWA. Kode Status: ' . $response->status());
-
+            return back()->with('error', 'Gagal terhubung dengan server GOWA atau response tidak valid.');
         } catch (\Exception $e) {
             return back()->with('error', 'Terjadi kesalahan sistem saat sinkronisasi: ' . $e->getMessage());
         }

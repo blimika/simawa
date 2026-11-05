@@ -15,9 +15,10 @@ return [
     */
     // Tambahkan di bagian paling bawah array
     'gowa' => [
-        'url'  => env('GOWA_API_URL', 'http://localhost:3000'),
-        'user' => env('GOWA_BASIC_USER', 'admin'),
-        'pass' => env('GOWA_BASIC_PASS', 'password'),
+        'url'            => env('GOWA_API_URL', 'http://localhost:3000'),
+        'user'           => env('GOWA_BASIC_USER', 'admin'),
+        'pass'           => env('GOWA_BASIC_PASS', 'password'),
+        'webhook_secret' => env('GOWA_WEBHOOK_SECRET', null),
     ],
 
     'postmark' => [

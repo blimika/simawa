@@ -97,6 +97,12 @@
                             @if($device->status === 'connected' || $device->status === 'logged')
                                 <!-- Indikator jika sudah login -->
                                 <span class="text-xs bg-green-100 text-green-700 py-1 px-2 rounded font-medium">Aktif</span>
+                                <form action="{{ route('devices.logout', $device->id) }}" method="POST" class="inline" onsubmit="return confirm('Apakah Anda yakin ingin memutus sesi WhatsApp pada device ini?');">
+                                    @csrf
+                                    <button type="submit" class="text-xs bg-orange-100 hover:bg-orange-200 text-orange-800 py-1 px-2 rounded transition" title="Logout sesi WhatsApp di GOWA">
+                                        Logout
+                                    </button>
+                                </form>
                             @else
                                 <!-- 2. Tombol Scan QR (Muncul jika pending / disconnected) -->
                                 <a href="{{ route('devices.scan', $device->id) }}" class="text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium py-1 px-3 rounded shadow transition">

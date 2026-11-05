@@ -18,83 +18,116 @@ class WebhookController extends Controller
     public function handle(Request $request, GowaService $gowa)
     {
         $data = $request->all();
-        // =======================================================
-        // TAMBAHKAN 2 BARIS INI UNTUK MENGINTIP ISI ASLI DARI GOWA
-        \Log::info('--- MENGINTIP ISI WEBHOOK GOWA ---');
+        \Log::info('--- MENGINTIP ISI WEBHOOK GOWA v9 ---');
         \Log::info(json_encode($data, JSON_PRETTY_PRINT));
-        // =======================================================
+
+        // 0. Verifikasi HMAC Signature (jika webhook secret dikonfigurasi di SIMAWA)
+        $webhookSecret = config('services.gowa.webhook_secret');
+        $hubSignature = $request->header('X-Hub-Signature-256');
+        if ($webhookSecret && $hubSignature) {
+            $expected = 'sha256=' . hash_hmac('sha256', $request->getContent(), $webhookSecret);
+            if (!hash_equals($expected, $hubSignature)) {
+                \Log::warning('Webhook GOWA: Invalid HMAC signature!');
+                return response()->json(['status' => 'error', 'message' => 'Invalid signature'], 401);
+            }
+        }
+
+        $event = $request->input('event');
+        $rawDeviceId = $request->input('device_id');
+        $sessionId = $request->input('session_id');
+        $deviceNumber = $rawDeviceId ? explode('@', explode(':', $rawDeviceId)[0])[0] : null;
+
+        // Cari Device di SIMAWA:
+        // Prioritas 1: Berdasarkan session_id GOWA (paling presisi untuk multi-device di GOWA v9)
+        $device = null;
+        if (!empty($sessionId)) {
+            $device = Device::where('gowa_session_id', $sessionId)->first();
+        }
+
+        // Prioritas 2: Fallback ke nomor HP atau gowa_session_id
+        if (!$device && !empty($deviceNumber)) {
+            $device = Device::where('phone_number', $deviceNumber)
+                ->orWhere('gowa_session_id', $deviceNumber)
+                ->first();
+        }
+
+        // Event: device.logged_out (Fitur GOWA v9 ketika device terputus dari WhatsApp)
+        if ($event === 'device.logged_out') {
+            if ($device && $device->status !== 'disconnected') {
+                $device->update(['status' => 'disconnected']);
+                \Log::warning("Webhook GOWA: Device [{$device->name}] diputus dari WhatsApp: " . data_get($data, 'payload.reason', 'Logged out'));
+            }
+            return response()->json(['status' => 'success', 'message' => 'Device logged out handled']);
+        }
+
         // 1. Abaikan jika ini bukan event pesan masuk
-        if ($request->input('event') !== 'message') {
+        if ($event !== 'message') {
             return response()->json(['status' => 'ignored', 'reason' => 'Bukan event message']);
+        }
+
+        if (!$device) {
+            \Log::error("Webhook GOWA: Device dengan session '{$sessionId}' / nomor '{$deviceNumber}' tidak ditemukan di database SIMAWA.");
+            return response()->json(['status' => 'error', 'message' => 'Device not found'], 404);
+        }
+
+        // Auto-update nomor WhatsApp device jika di database masih kosong
+        if (empty($device->phone_number) && !empty($deviceNumber)) {
+            $device->update(['phone_number' => $deviceNumber]);
         }
 
         $payload = $request->input('payload');
 
-        // 2. Ekstrak Nomor Device Penerima (Dari 628xxx@s.whatsapp.net menjadi 628xxx)
-        $rawDeviceId = $request->input('device_id');
-        $deviceNumber = $rawDeviceId ? explode('@', $rawDeviceId)[0] : null;
-
-        // 3. Ekstrak Nomor Pengirim, Isi Pesan, dan Media
+        // 2. Ekstrak Nomor Pengirim, Isi Pesan, dan Media
         $rawFrom = data_get($payload, 'from');
-        $senderNumber = $rawFrom ? explode('@', $rawFrom)[0] : 'unknown';
-        $fromName = data_get($payload, 'from_name');
+        $senderNumber = $rawFrom ? explode('@', explode(':', $rawFrom)[0])[0] : 'unknown';
+        // GOWA v9 menyediakan sender_display_name yang lebih rapi
+        $fromName = data_get($payload, 'sender_display_name') ?: data_get($payload, 'from_name');
         $text = data_get($payload, 'body') ?? '';
         $isFromMe = data_get($payload, 'is_from_me', false);
-        // --- TAMBAHKAN BARIS INI UNTUK MENANGKAP ID ROOM CHAT ---
         $chatId = data_get($payload, 'chat_id') ?? '';
 
-       // --- TANGKAP KUTIPAN PESAN (QUOTE REPLY) ---
+        // Tangkap kutipan pesan (quote reply)
         $quotedBody = data_get($payload, 'quoted_body');
-        $repliedToId = data_get($payload, 'replied_to_id'); // Tangkap juga ID balasannya
+        $repliedToId = data_get($payload, 'replied_to_id');
 
-        // LOGIKA CERDAS: Jika ada ID balasan tapi teks kutipannya kosong,
-        // berarti pelanggan merespons/mengutip sebuah gambar atau dokumen.
         if (empty($quotedBody) && !empty($repliedToId)) {
             $quotedBody = '📷 [Membalas Lampiran / File Media]';
         }
 
-        // Ekstrak Media Gambar / Dokumen
-        $rawImage = data_get($payload, 'image');
-        $rawDocument = data_get($payload, 'document');
+        // Ekstrak Media: Image, Document, Video, Audio, Sticker (GOWA v9)
         $mediaPath = null;
+        $mediaItems = [
+            'image'    => data_get($payload, 'image'),
+            'document' => data_get($payload, 'document'),
+            'video'    => data_get($payload, 'video'),
+            'audio'    => data_get($payload, 'audio'),
+            'sticker'  => data_get($payload, 'sticker'),
+        ];
 
-        if (is_array($rawImage) && isset($rawImage['path'])) {
-            $mediaPath = $rawImage['path'];
-        } elseif (is_string($rawImage)) {
-            $mediaPath = $rawImage;
-        } elseif (is_array($rawDocument) && isset($rawDocument['path'])) {
-            $mediaPath = $rawDocument['path'];
-        } elseif (is_string($rawDocument)) {
-            $mediaPath = $rawDocument;
+        foreach ($mediaItems as $mediaData) {
+            if (empty($mediaData)) continue;
+            if (is_array($mediaData)) {
+                $mediaPath = $mediaData['path'] ?? $mediaData['url'] ?? null;
+            } elseif (is_string($mediaData)) {
+                $mediaPath = $mediaData;
+            }
+            if (!empty($mediaPath)) break;
         }
 
-        // 4. Cari Device di SIMAWA berdasarkan NOMOR phone_number
-        $device = Device::where('phone_number', $deviceNumber)->first();
-
-        if (!$device) {
-            \Log::error("Webhook GOWA: Device dengan nomor '$deviceNumber' tidak ditemukan di database SIMAWA.");
-            return response()->json(['status' => 'error', 'message' => 'Device not found'], 404);
-        }
-
-        // 5. Simpan ke tabel webhook_logs
+        // 3. Simpan ke tabel webhook_logs
         WebhookLog::create([
             'device_id' => $device->id,
             'sender_number' => $senderNumber,
             'message' => $text ?: ($mediaPath ? '[File Media]' : null),
             'payload' => json_encode($data)
         ]);
+
         // ====================================================================
         // CEK MODE LAYANAN: APAKAH LIVE CHAT DIAKTIFKAN UNTUK DEVICE INI?
         // ====================================================================
         if ($device->is_livechat_enabled) {
-            /*
-            if ((empty($text) && empty($mediaPath)) || $isFromMe || Str::contains($rawFrom, '@g.us')) {
-                return response()->json(['status' => 'ignored', 'reason' => 'Pesan dari diri sendiri, grup, atau kosong']);
-            } */
-
-            // 6. Validasi Pesan (Abaikan jika dari diri sendiri atau grup)
+            // Validasi Pesan (Abaikan jika dari diri sendiri atau grup)
             if ((empty($text) && empty($mediaPath)) || $isFromMe || Str::contains($rawFrom, '@g.us') || Str::contains($chatId, '@g.us')) {
-                // Return di sini kita hilangkan agar lanjut ke Webhook Forwarding di bawah
                 $skipLiveChat = true;
             } else {
                 $skipLiveChat = false;
@@ -105,17 +138,33 @@ class WebhookController extends Controller
                 $finalMediaUrl = null;
                 if (!empty($mediaPath)) {
                     try {
-                        $gowaBaseUrl = env('GOWA_API_URL', 'http://localhost:5271');
                         $cleanPath = str_replace('\\', '/', $mediaPath);
-                        $downloadUrl = rtrim($gowaBaseUrl, '/') . '/' . ltrim($cleanPath, '/');
 
-                        $gowaUser = env('GOWA_BASIC_USER', 'kota');
-                        $gowaPass = env('GOWA_BASIC_PASS', 'kota');
+                        if (str_starts_with($cleanPath, 'http://') || str_starts_with($cleanPath, 'https://')) {
+                            $downloadUrl = $cleanPath;
+                        } else {
+                            $downloadUrl = rtrim($gowa->getBaseUrl(), '/') . '/' . ltrim($cleanPath, '/');
+                        }
 
-                        $response = Http::withBasicAuth($gowaUser, $gowaPass)->get($downloadUrl);
+                        $response = $gowa->baseClient(20)->get($downloadUrl);
+
+                        // Jika gagal download langsung dan auto-download di GOWA mati, coba via endpoint v9 /message/{id}/download
+                        if (!$response->successful() && !empty(data_get($payload, 'id'))) {
+                            try {
+                                $downloadMediaResp = $gowa->downloadMedia($device->gowa_session_id, data_get($payload, 'id'), $senderNumber);
+                                if ($downloadMediaResp->successful()) {
+                                    $fileUrl = data_get($downloadMediaResp->json(), 'results.file_url');
+                                    if ($fileUrl) {
+                                        $response = $gowa->baseClient(20)->get($fileUrl);
+                                    }
+                                }
+                            } catch (\Exception $ex) {
+                                // Fallback
+                            }
+                        }
 
                         if ($response->successful()) {
-                            $extension = pathinfo($cleanPath, PATHINFO_EXTENSION) ?: 'bin';
+                            $extension = pathinfo(parse_url($cleanPath, PHP_URL_PATH), PATHINFO_EXTENSION) ?: 'bin';
                             $filename = 'media_' . time() . '_' . Str::random(5) . '.' . strtolower($extension);
 
                             Storage::disk('public')->put('received_media/' . $filename, $response->body());
@@ -124,6 +173,7 @@ class WebhookController extends Controller
                             $finalMediaUrl = $mediaPath;
                         }
                     } catch (\Exception $e) {
+                        \Log::error('Gagal download media dari GOWA: ' . $e->getMessage());
                         $finalMediaUrl = $mediaPath;
                     }
                 }
