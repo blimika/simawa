@@ -38,6 +38,9 @@
                         <x-nav-link :href="route('reports.index')" :active="request()->routeIs('reports.index')">
                             {{ __('Laporan') }}
                         </x-nav-link>
+                        <x-nav-link :href="route('api-docs.index')" :active="request()->routeIs('api-docs.*')">
+                            {{ __('API Docs') }}
+                        </x-nav-link>
                     @endif
 
                     <x-nav-link :href="route('phonebook.index')" :active="request()->routeIs('phonebook.*')">
@@ -117,6 +120,9 @@
 
                 <x-responsive-nav-link :href="route('agents.index')" :active="request()->routeIs('agents.*')">
                     {{ __('Agen') }}
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('api-docs.index')" :active="request()->routeIs('api-docs.*')">
+                    {{ __('API Docs') }}
                 </x-responsive-nav-link>
             @endif
 

@@ -18,7 +18,6 @@
                     <button type="button" id="tab-code-btn" onclick="switchTab('code')" class="py-3 px-6 text-sm font-semibold border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 transition flex items-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
                         Kode Pairing Nomor HP
-                        <span class="bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full font-medium">Bypass Passkey</span>
                     </button>
                 </div>
 
@@ -33,6 +32,78 @@
                     <a href="{{ route('devices.index') }}" class="inline-block bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-6 rounded-md shadow transition">
                         Buka Daftar Device
                     </a>
+                </div>
+
+                <!-- Area Peringatan & Penanganan Passkey WhatsApp (GOWA PR #754) -->
+                <div id="passkey-area" class="hidden bg-amber-50 border-2 border-amber-400 text-amber-950 p-6 rounded-xl w-full text-left mb-6 shadow-sm">
+                    <div class="flex items-start gap-3">
+                        <div class="text-3xl">🔑</div>
+                        <div class="flex-1">
+                            <div class="flex items-center justify-between mb-1">
+                                <h4 class="font-bold text-base text-amber-900">WhatsApp Meminta Verifikasi Passkey (Kunci Sandi)</h4>
+                                <span class="bg-amber-200 text-amber-900 text-xs px-2.5 py-0.5 rounded-full font-semibold">Tantangan Keamanan Terdeteksi</span>
+                            </div>
+                            <p class="text-xs text-amber-800 leading-relaxed mb-3">
+                                Layar WhatsApp di HP Anda meminta verifikasi <b>Passkey / Kunci Sandi</b> atau <i>"Lanjutkan di WhatsApp Web"</i>. WhatsApp server menunggu penandatanganan WebAuthn dari peramban Chrome Anda.
+                            </p>
+
+                            <!-- Status & Kontrol Ekstensi Browser wa-passkey-connector -->
+                            <div id="passkey-extension-box" class="p-4 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 mb-3 space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <span class="font-bold text-sm text-blue-950 flex items-center gap-1.5">
+                                        <span>⚡</span> Status Ekstensi Browser:
+                                    </span>
+                                    <span id="ext-status-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gray-200 text-gray-700">Mengecek Ekstensi...</span>
+                                </div>
+                                <p id="ext-status-desc" class="text-blue-800 leading-relaxed">
+                                    Mendeteksi ekstensi <b>wa-passkey-connector</b> di Google Chrome...
+                                </p>
+                                <div class="pt-1 flex flex-wrap items-center gap-2">
+                                    <button type="button" id="btn-manual-trigger-ext" onclick="manualTriggerPasskey()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3.5 rounded shadow text-xs flex items-center gap-1.5 transition">
+                                        <span>🚀</span>
+                                        <span>Picu Pop-up Passkey di Browser Sekarang</span>
+                                    </button>
+                                    <button type="button" onclick="pingExtension()" class="bg-white hover:bg-gray-100 text-blue-800 border border-blue-300 py-1.5 px-3 rounded text-xs transition">
+                                        🔄 Cek Ulang Status Ekstensi
+                                    </button>
+                                </div>
+                                <div id="ext-help-tip" class="hidden text-[11px] bg-white p-3 rounded border border-blue-200 text-gray-700 mt-2 space-y-1">
+                                    <p class="font-bold text-blue-900">💡 Ekstensi Belum Terdeteksi? Lakukan langkah ini:</p>
+                                    <ol class="list-decimal pl-4 space-y-1 leading-relaxed">
+                                        <li>Buka tab baru di browser Anda: <code>chrome://extensions</code></li>
+                                        <li>Cari ekstensi <b>wa-passkey-connector</b> lalu klik tombol <b>Details</b> (Detail).</li>
+                                        <li>Pada bagian <b>Site access</b> (Akses situs), pilih <b>"On all sites"</b> (Pada semua situs).</li>
+                                        <li>Kembali ke halaman ini lalu klik tombol <b>"Cek Ulang Status Ekstensi"</b> di atas.</li>
+                                    </ol>
+                                </div>
+                            </div>
+
+                            <!-- Kotak Kode Konfirmasi Passkey (HANYA MUNCUL JIKA WHATSAPP MENGIRIM KODE ANGKA) -->
+                            <div id="passkey-code-box" class="hidden my-3 p-4 bg-white rounded-lg border-2 border-amber-300 text-center shadow-sm">
+                                <span class="text-xs font-bold text-gray-600 uppercase tracking-wider block mb-1">Kode Konfirmasi Passkey WhatsApp:</span>
+                                <div id="passkey-code" class="text-3xl font-mono font-extrabold tracking-widest text-amber-900 my-2 select-all"></div>
+                                <button id="btn-confirm-passkey" type="button" onclick="submitPasskeyConfirm()" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold py-2 px-5 rounded-lg shadow transition flex items-center gap-2 mx-auto">
+                                    <span id="passkey-confirm-spinner" class="hidden animate-spin h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full"></span>
+                                    <span>Kirim Konfirmasi Kode ke WhatsApp</span>
+                                </button>
+                                <p class="text-[11px] text-gray-500 mt-1.5">Gunakan tombol ini jika WhatsApp menampilkan kode angka konfirmasi di atas.</p>
+                            </div>
+
+                            <!-- Opsi Pancingan Cadangan -->
+                            <div class="bg-white border border-amber-200 p-3.5 rounded-lg text-xs text-gray-700 space-y-2 mb-3">
+                                <p class="font-bold text-gray-900">🌐 Opsi Alternatif Tanpa Ekstensi (Trik Pancingan WhatsApp Web):</p>
+                                <p class="text-gray-600 leading-relaxed">
+                                    Buka tab baru dan akses <a href="https://web.whatsapp.com" target="_blank" class="text-blue-600 underline font-semibold">web.whatsapp.com</a> di browser ini. Login sekali di sana dan izinkan scan passkey. Setelah login lolos di web resmi, server WhatsApp akan menganggap perangkat ini tepercaya (*trusted*), lalu klik tombol "Request Ulang" di bawah.
+                                </p>
+                            </div>
+
+                            <div class="flex flex-wrap gap-2 pt-1">
+                                <button type="button" onclick="requestNewQr()" class="bg-white hover:bg-gray-100 text-gray-800 text-xs font-semibold py-2 px-4 rounded-lg border border-gray-300 transition">
+                                    🔄 Reset &amp; Request Ulang
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- TAB 1: SCAN QR CODE -->
@@ -53,54 +124,6 @@
                         <div id="qr-area" class="hidden p-4 border-4 border-gray-100 rounded-xl bg-white shadow-sm flex flex-col items-center">
                             <img id="qr-image" src="" alt="QR Code WhatsApp" class="w-64 h-64 object-contain">
                             <span class="text-xs text-gray-400 mt-2">QR Code diperbarui otomatis jika kedaluwarsa</span>
-                        </div>
-
-                        <!-- Area Peringatan Passkey WhatsApp -->
-                        <div id="passkey-area" class="hidden bg-amber-50 border border-amber-300 text-amber-900 p-6 rounded-xl w-full text-left">
-                            <div class="flex items-start gap-3">
-                                <div class="text-3xl">🔑</div>
-                                <div class="flex-1">
-                                    <h4 class="font-bold text-base text-amber-900 mb-1">WhatsApp Meminta Verifikasi Passkey (Kunci Sandi)</h4>
-                                    <p class="text-xs text-amber-800 leading-relaxed mb-3">
-                                        Akun WhatsApp Anda meminta verifikasi Passkey. Pada layar ponsel muncul: <i>"Continue on WhatsApp Web / You may need to scan another QR code to use your Passkey"</i>.
-                                    </p>
-
-                                    <div class="bg-red-50 border border-red-200 text-red-800 p-3 rounded-lg text-xs mb-4">
-                                        <p class="font-semibold mb-1">⚠️ Mengapa QR Code Kedua Tidak Muncul?</p>
-                                        <p>QR Code kedua tersebut adalah fitur peramban Google Chrome resmi di <code>web.whatsapp.com</code> (Bluetooth FIDO2). Server gateway WhatsApp pihak ketiga (GOWA) tidak memiliki QR Code kedua dan tidak dapat melewati batas WebAuthn peramban untuk domain whatsapp.com.</p>
-                                    </div>
-
-                                    <div id="passkey-code-box" class="hidden my-3 p-3 bg-white rounded border border-amber-200 text-center">
-                                        <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-1">Kode Konfirmasi WhatsApp:</span>
-                                        <div id="passkey-code" class="text-3xl font-mono font-bold tracking-widest text-amber-900 mb-2"></div>
-                                        <button id="btn-confirm-passkey" type="button" onclick="submitPasskeyConfirm()" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold py-1.5 px-4 rounded shadow">
-                                            Kirim Konfirmasi Kode
-                                        </button>
-                                    </div>
-
-                                    <div class="bg-blue-50 border border-blue-200 p-3.5 rounded-lg text-xs text-blue-900 mb-4 space-y-2">
-                                        <p class="font-bold text-sm text-blue-950">✅ 2 Solusi Menghubungkan Device Ini:</p>
-                                        <div class="p-2.5 bg-white rounded border border-blue-200">
-                                            <p class="font-bold text-blue-800">1. Gunakan Kode Pairing Nomor HP (Sangat Mudah &amp; Cepat)</p>
-                                            <p class="text-gray-600 mt-0.5">Klik tombol biru di bawah. Masukkan kode 8 karakter di WhatsApp HP Anda lewat menu <i>Perangkat tertaut &gt; Tautkan perangkat &gt; Tautkan dengan nomor telepon saja</i>.</p>
-                                        </div>
-                                        <div class="p-2.5 bg-white rounded border border-blue-200">
-                                            <p class="font-bold text-gray-800">2. Atau Matikan Sementara Passkey di WhatsApp HP</p>
-                                            <p class="text-gray-600 mt-0.5">Buka WhatsApp HP &gt; <b>Setelan</b> &gt; <b>Akun</b> &gt; <b>Kunci Sandi (Passkeys)</b> &gt; <b>Hapus</b>. Lalu klik tombol "Request Ulang QR Code" di bawah dan scan kembali.</p>
-                                        </div>
-                                    </div>
-
-                                    <div class="flex flex-wrap gap-2">
-                                        <button type="button" onclick="switchToPairingCodeAuto()" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-2.5 px-4 rounded-lg shadow transition flex items-center gap-1.5">
-                                            <span>🚀</span>
-                                            <span>Buka &amp; Buat Kode Pairing Sekarang</span>
-                                        </button>
-                                        <button type="button" onclick="requestNewQr()" class="bg-white hover:bg-gray-100 text-gray-800 text-xs font-semibold py-2.5 px-4 rounded-lg border border-gray-300 transition">
-                                            🔄 Request Ulang QR Code
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                     </div>
 
@@ -240,6 +263,7 @@
 
         // Request QR Code
         function requestNewQr() {
+            window._lastPasskeyChallenge = null;
             loadingArea.classList.remove('hidden');
             qrArea.classList.add('hidden');
             successArea.classList.add('hidden');
@@ -295,6 +319,7 @@
 
         // Request Pairing Code
         function requestPairingCode() {
+            window._lastPasskeyChallenge = null;
             const phoneVal = pairingPhoneInput.value.trim();
             if (!phoneVal) {
                 alert("Silakan masukkan nomor WhatsApp Anda.");
@@ -355,6 +380,94 @@
             });
         }
 
+        let isExtensionDetected = false;
+        let latestChallenge = null;
+        let currentRequestId = null;
+
+        // Deteksi Ekstensi wa-passkey-connector via PING
+        function pingExtension() {
+            const badge = document.getElementById('ext-status-badge');
+            const desc = document.getElementById('ext-status-desc');
+            const tip = document.getElementById('ext-help-tip');
+
+            if (badge) {
+                badge.className = "px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-yellow-100 text-yellow-800";
+                badge.innerText = "Mengecek...";
+            }
+
+            window.postMessage({ target: 'wa-passkey-connector', type: 'PING' }, '*');
+
+            setTimeout(() => {
+                if (!isExtensionDetected) {
+                    if (badge) {
+                        badge.className = "px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-800";
+                        badge.innerText = "⚠️ Belum Terdeteksi";
+                    }
+                    if (desc) {
+                        desc.innerHTML = "Ekstensi <b>wa-passkey-connector</b> belum merespon di halaman ini. Pastikan izin akses situs telah diaktifkan.";
+                    }
+                    if (tip) tip.classList.remove('hidden');
+                }
+            }, 1200);
+        }
+
+        function updateExtensionStatus(detected) {
+            isExtensionDetected = detected;
+            const badge = document.getElementById('ext-status-badge');
+            const desc = document.getElementById('ext-status-desc');
+            const tip = document.getElementById('ext-help-tip');
+
+            if (detected) {
+                if (badge) {
+                    badge.className = "px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-800";
+                    badge.innerText = "🟢 Terhubung & Aktif";
+                }
+                if (desc) {
+                    desc.innerHTML = "Ekstensi <b>wa-passkey-connector</b> terdeteksi aktif dan siap menjalankan verifikasi WebAuthn otomatis!";
+                }
+                if (tip) tip.classList.add('hidden');
+            }
+        }
+
+        function sendPasskeyToExtension(challengeData) {
+            if (!challengeData) return;
+            latestChallenge = challengeData;
+            currentRequestId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).substring(2));
+
+            let publicKey = challengeData;
+            if (typeof challengeData === 'string') {
+                try {
+                    publicKey = JSON.parse(challengeData);
+                } catch (e) {
+                    publicKey = challengeData;
+                }
+            }
+
+            console.log("Mengirim pesan ke wa-passkey-connector:", {
+                target: 'wa-passkey-connector',
+                type: 'RUN_PASSKEY_ASSERTION',
+                requestId: currentRequestId,
+                publicKey: publicKey
+            });
+
+            window.postMessage({
+                target: 'wa-passkey-connector',
+                type: 'RUN_PASSKEY_ASSERTION',
+                requestId: currentRequestId,
+                publicKey: publicKey
+            }, '*');
+        }
+
+        function manualTriggerPasskey() {
+            if (!latestChallenge) {
+                alert("Belum ada tantangan passkey aktif dari WhatsApp server. Pastikan WhatsApp di ponsel Anda sudah memunculkan permintaan verifikasi.");
+                return;
+            }
+            statusText.innerText = "Memicu verifikasi passkey ke ekstensi browser...";
+            statusText.className = "text-blue-600 font-bold";
+            sendPasskeyToExtension(latestChallenge);
+        }
+
         // Polling Status Login
         function startPolling() {
             if (pollingInterval) clearInterval(pollingInterval);
@@ -371,19 +484,27 @@
                     if (data.status === 'connected') {
                         clearInterval(pollingInterval);
                         showSuccess();
-                    } else if (data.passkey && activeTab === 'qr') {
-                        // Jika WhatsApp memicu passkey saat scan QR
-                        qrArea.classList.add('hidden');
-                        loadingArea.classList.add('hidden');
+                    } else if (data.passkey) {
+                        // Tampilkan modal/banner passkey di kedua tab (QR maupun Kode Pairing)
                         if (passkeyArea) passkeyArea.classList.remove('hidden');
-                        statusText.innerText = "WhatsApp Meminta Passkey (Gunakan Kode Pairing)";
-                        statusText.className = "text-amber-600";
+                        statusText.innerText = "WhatsApp Meminta Verifikasi Passkey (Kunci Sandi)";
+                        statusText.className = "text-amber-600 font-bold";
 
+                        // 1. Jika WhatsApp mengirimkan kode verifikasi angka konfirmasi
                         if (data.passkey.code) {
-                            passkeyCodeBox.classList.remove('hidden');
-                            passkeyCode.innerText = data.passkey.code;
+                            if (passkeyCodeBox) passkeyCodeBox.classList.remove('hidden');
+                            if (passkeyCode) passkeyCode.innerText = data.passkey.code;
                         } else {
-                            passkeyCodeBox.classList.add('hidden');
+                            if (passkeyCodeBox) passkeyCodeBox.classList.add('hidden');
+                        }
+
+                        // 2. Jika ada challenge WebAuthn, siarkan ke ekstensi wa-passkey-connector
+                        if (data.passkey.challenge) {
+                            latestChallenge = data.passkey.challenge;
+                            if (window._lastPasskeyChallenge !== JSON.stringify(data.passkey.challenge)) {
+                                window._lastPasskeyChallenge = JSON.stringify(data.passkey.challenge);
+                                sendPasskeyToExtension(data.passkey.challenge);
+                            }
                         }
                     }
                 })
@@ -392,7 +513,11 @@
         }
 
         function submitPasskeyConfirm() {
-            statusText.innerText = "Mengirim konfirmasi passkey...";
+            const btnSpinner = document.getElementById('passkey-confirm-spinner');
+            if (btnSpinner) btnSpinner.classList.remove('hidden');
+            statusText.innerText = "Mengirim konfirmasi kode passkey ke server WhatsApp...";
+            statusText.className = "text-yellow-600 font-bold";
+
             fetch("{{ route('devices.passkey_confirm', $device->id) }}", {
                 method: "POST",
                 headers: {
@@ -402,47 +527,95 @@
             })
             .then(res => res.json())
             .then(resData => {
+                if (btnSpinner) btnSpinner.classList.add('hidden');
                 if (resData.status === 'success') {
-                    statusText.innerText = "Konfirmasi terkirim. Menunggu login WhatsApp...";
+                    statusText.innerText = "Konfirmasi terkirim! Menunggu WhatsApp mengizinkan sesi...";
+                    statusText.className = "text-green-600 font-bold";
+                    startPolling();
                 } else {
                     alert(resData.message || "Gagal konfirmasi passkey.");
+                    statusText.innerText = "Gagal konfirmasi passkey: " + (resData.message || '');
+                    statusText.className = "text-red-600 font-bold";
                 }
             })
-            .catch(err => alert("Kesalahan koneksi saat konfirmasi passkey."));
+            .catch(err => {
+                if (btnSpinner) btnSpinner.classList.add('hidden');
+                alert("Kesalahan koneksi saat konfirmasi passkey.");
+            });
         }
 
         function showSuccess() {
             if (tabQrContent) tabQrContent.classList.add('hidden');
             if (tabCodeContent) tabCodeContent.classList.add('hidden');
-            qrArea.classList.add('hidden');
-            loadingArea.classList.add('hidden');
+            if (qrArea) qrArea.classList.add('hidden');
+            if (loadingArea) loadingArea.classList.add('hidden');
             if (passkeyArea) passkeyArea.classList.add('hidden');
             successArea.classList.remove('hidden');
             statusText.innerText = "Terhubung (Logged In)";
-            statusText.className = "text-green-600";
+            statusText.className = "text-green-600 font-bold";
         }
 
         // Listener jika ada browser extension (seperti wa-passkey-connector)
         window.addEventListener('message', (event) => {
-            if (event.data && event.data.type === 'PASSKEY_ASSERTION_RESULT' && event.data.assertion) {
-                fetch("{{ route('devices.passkey_response', $device->id) }}", {
-                    method: "POST",
-                    headers: {
-                        "X-CSRF-TOKEN": "{{ csrf_token() }}",
-                        "Content-Type": "application/json",
-                        "Accept": "application/json"
-                    },
-                    body: JSON.stringify(event.data.assertion)
-                })
-                .then(res => res.json())
-                .then(resData => {
-                    console.log('Passkey Assertion Response:', resData);
-                    statusText.innerText = "Passkey assertion terkirim, menunggu WhatsApp...";
-                });
+            // Tanggapan PING/PONG dari ekstensi
+            if (event.data && (event.data.source === 'wa-passkey-connector' || event.data.target === 'wa-passkey-connector-client')) {
+                if (event.data.type === 'PONG') {
+                    console.log("Ekstensi wa-passkey-connector merespon PONG!");
+                    updateExtensionStatus(true);
+                    return;
+                }
+            }
+
+            // Tanggapan PASSKEY_ASSERTION_RESULT
+            if (event.data && (event.data.source === 'wa-passkey-connector' || event.data.type === 'PASSKEY_ASSERTION_RESULT')) {
+                if (event.data.type === 'PASSKEY_ASSERTION_RESULT') {
+                    if (event.data.error) {
+                        console.error("Error assertion dari ekstensi:", event.data.error);
+                        statusText.innerText = "Verifikasi passkey gagal di peramban: " + (event.data.error.message || event.data.error);
+                        statusText.className = "text-red-600 font-bold";
+                        return;
+                    }
+
+                    if (event.data.assertion) {
+                        console.log("Menerima Passkey Assertion dari Ekstensi Browser:", event.data.assertion);
+                        statusText.innerText = "Passkey terverifikasi di peramban! Mengirim ke server GOWA...";
+                        statusText.className = "text-blue-600 font-bold";
+
+                        fetch("{{ route('devices.passkey_response', $device->id) }}", {
+                            method: "POST",
+                            headers: {
+                                "X-CSRF-TOKEN": "{{ csrf_token() }}",
+                                "Content-Type": "application/json",
+                                "Accept": "application/json"
+                            },
+                            body: JSON.stringify(event.data.assertion)
+                        })
+                        .then(res => res.json())
+                        .then(resData => {
+                            console.log('Passkey Assertion Response:', resData);
+                            if (resData.status === 'success') {
+                                statusText.innerText = "Passkey berhasil diterima server WhatsApp! Menghubungkan...";
+                                statusText.className = "text-green-600 font-bold";
+                                startPolling();
+                            } else {
+                                statusText.innerText = "Gagal memproses passkey: " + (resData.message || '');
+                                statusText.className = "text-red-600 font-bold";
+                            }
+                        })
+                        .catch(err => {
+                            console.error('Error kirim assertion:', err);
+                            statusText.innerText = "Gagal mengirim passkey assertion ke server.";
+                            statusText.className = "text-red-600 font-bold";
+                        });
+                    }
+                }
             }
         });
 
         // Jalankan saat pertama dimuat
-        document.addEventListener('DOMContentLoaded', requestNewQr);
+        document.addEventListener('DOMContentLoaded', () => {
+            pingExtension();
+            requestNewQr();
+        });
     </script>
 </x-app-layout>

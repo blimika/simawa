@@ -80,6 +80,9 @@ Route::middleware(['auth', 'active.user'])->group(function () {
         // Route::resource('agents', AgentController::class);
         // Manage Agents
         Route::resource('agents', AgentController::class);
+
+        // Halaman Dokumentasi API (Hanya Admin & Superadmin)
+        Route::get('/api-docs', [App\Http\Controllers\ApiDocController::class, 'index'])->name('api-docs.index');
     });
 
     // --- AKSES SEMUA (Superadmin, Admin, Agent) ---

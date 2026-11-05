@@ -313,7 +313,8 @@ class DeviceController extends Controller
             if ($response && $response->successful()) {
                 return response()->json(['status' => 'success', 'message' => 'Konfirmasi passkey berhasil dikirim ke server GOWA.']);
             }
-            return response()->json(['status' => 'error', 'message' => 'Gagal konfirmasi passkey ke GOWA.'], 400);
+            $errMsg = $response ? ($response->json('message') ?? $response->body()) : 'Gagal konfirmasi passkey ke GOWA.';
+            return response()->json(['status' => 'error', 'message' => $errMsg], 400);
         } catch (\Exception $e) {
             return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
         }
@@ -427,8 +428,11 @@ class DeviceController extends Controller
                             $pkStatus = $pkResults['status'] ?? 'none';
                             if ($pkStatus !== 'none') {
                                 $passkeyInfo = [
-                                    'status' => $pkStatus,
-                                    'code'   => $pkResults['code'] ?? null,
+                                    'status'          => $pkStatus,
+                                    'code'            => $pkResults['code'] ?? null,
+                                    'challenge'       => $pkResults['challenge'] ?? null,
+                                    'skip_handoff_ux' => $pkResults['skip_handoff_ux'] ?? false,
+                                    'device_id'       => $pkResults['device_id'] ?? $device->gowa_session_id,
                                 ];
                             }
                         }
