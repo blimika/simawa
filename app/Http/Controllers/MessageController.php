@@ -10,6 +10,7 @@ use App\Models\Phonebook;
 use App\Services\GowaService;
 use Illuminate\Support\Str;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 
 class MessageController extends Controller
 {
@@ -51,7 +52,23 @@ class MessageController extends Controller
         }
 
         // Eksekusi query untuk daftar tiket (kiri)
-        $tickets = $ticketsQuery->orderBy('updated_at', 'desc')->get();
+        $tickets = $ticketsQuery->with('device')->orderBy('updated_at', 'desc')->get();
+
+        // Ambil dan cache avatar profil WhatsApp untuk setiap tiket
+        foreach ($tickets as $t) {
+            if ($t->device && $t->device->status === 'connected') {
+                $cacheKey = "wa_avatar_{$t->device->gowa_session_id}_{$t->number}";
+                $avatar = Cache::remember($cacheKey, now()->addHours(6), function () use ($gowa, $t) {
+                    $res = $gowa->getUserAvatar($t->device->gowa_session_id, $t->number, true);
+                    return $res['results']['url'] ?? null;
+                });
+
+                if ($avatar && $t->avatar_url !== $avatar) {
+                    $t->avatar_url = $avatar;
+                    $t->update(['avatar_url' => $avatar]);
+                }
+            }
+        }
 
         // 4. INISIALISASI DEFAULT UNTUK AREA RUANG CHAT (KANAN)
         $activeTicket = null;
@@ -60,11 +77,25 @@ class MessageController extends Controller
 
         // 5. JIKA ADA TIKET YANG DIKLIK (Dibuka oleh Agen)
         if ($request->has('ticket_id')) {
-            $activeTicket = Ticket::findOrFail($request->ticket_id);
+            $activeTicket = Ticket::with('device')->findOrFail($request->ticket_id);
 
             // Hapus tanda pesan baru karena sedang dibaca (Preview)
             if ($activeTicket->has_new_message) {
                 $activeTicket->update(['has_new_message' => false]);
+            }
+
+            // Pastikan avatar active ticket juga termuat
+            if ($activeTicket->device && $activeTicket->device->status === 'connected') {
+                $cacheKey = "wa_avatar_{$activeTicket->device->gowa_session_id}_{$activeTicket->number}";
+                $avatar = Cache::remember($cacheKey, now()->addHours(6), function () use ($gowa, $activeTicket) {
+                    $res = $gowa->getUserAvatar($activeTicket->device->gowa_session_id, $activeTicket->number, true);
+                    return $res['results']['url'] ?? null;
+                });
+
+                if ($avatar && $activeTicket->avatar_url !== $avatar) {
+                    $activeTicket->avatar_url = $avatar;
+                    $activeTicket->update(['avatar_url' => $avatar]);
+                }
             }
 
             // Ambil riwayat chat untuk tiket yang sedang aktif
@@ -223,19 +254,15 @@ class MessageController extends Controller
             // 1. Ubah status tiket menjadi closed
             $ticket->update(['status' => 'closed']);
 
-            // 2. Siapkan Pesan Penutup (Otomatis mengambil nama device dari relasi)
+            // 2. Siapkan Pesan Penutup (Otomatis mengambil custom template dari device)
             $device = $ticket->device;
-            $deviceName = $device ? $device->name : 'SIMAWA';
-            $customerName = $ticket->customer_name ? $ticket->customer_name : 'Bapak/Ibu';
+            $customerName = $ticket->customer_name ?: 'Bapak/Ibu';
             $ticketNumber = $ticket->ticket_number;
+            $agentName = auth()->user()->name;
 
-            $closingMessage =   "Terima kasih Bapak/Ibu {$customerName}.\n"
-                              . "Nomor tiket {$ticketNumber} telah kami tandai selesai.\n\n"
-                              . "Semoga informasi/layanan yang diberikan bermanfaat.\n"
-                              . "Apabila Bapak/Ibu {$customerName} membutuhkan layanan kembali, "
-                              . "silakan mengirim pesan baru melalui WhatsApp ini.\n\n"
-                              . "Salam hangat,\n"
-                              . "Tim Layanan WhatsApp {$deviceName}.";
+            $closingMessage = $device
+                ? $device->getFormattedClosingMessage($customerName, $ticketNumber, $agentName)
+                : "Terima kasih Bapak/Ibu {$customerName}.\nNomor tiket {$ticketNumber} telah kami tandai selesai.";
 
             // 3. Kirim Pesan via API GOWA
             if ($device) {
@@ -295,8 +322,15 @@ class MessageController extends Controller
         // 1. Klaim tiket ke agen yang mengeklik
         $ticket->update(['agent_id' => $user->id]);
 
-        // 2. Siapkan pesan otomatis
-        $claimMessage = "Permintaan/tiket Bapak/Ibu saat ini sedang dilayani oleh Operator Kami *({$user->name})*.";
+        // 2. Siapkan pesan otomatis (Otomatis mengambil custom template dari device)
+        $device = $ticket->device;
+        $customerName = $ticket->customer_name ?: 'Bapak/Ibu';
+        $ticketNumber = $ticket->ticket_number;
+        $agentName = $user->name;
+
+        $claimMessage = $device
+            ? $device->getFormattedClaimMessage($agentName, $customerName, $ticketNumber)
+            : "Permintaan/tiket Bapak/Ibu saat ini sedang dilayani oleh Operator Kami *({$agentName})*.";
 
         // 3. Kirim pesan notifikasi ke pelanggan via GOWA
         if ($ticket->device) {

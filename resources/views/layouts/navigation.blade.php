@@ -1,6 +1,6 @@
 <nav x-data="{ open: false }" class="bg-white border-b border-gray-100">
     <!-- Primary Navigation Menu -->
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="w-full px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between h-16">
             <div class="flex">
                 <!-- Logo -->
@@ -18,7 +18,7 @@
                     <x-nav-link :href="route('messages.index')" :active="request()->routeIs('messages.*')">
                         {{ __('Live Chat') }}
                     </x-nav-link>
-                    <x-nav-link :href="route('broadcast.create')" :active="request()->routeIs('broadcast.*')">
+                    <x-nav-link :href="route('broadcast.index')" :active="request()->routeIs('broadcast.*')">
                         {{ __('Broadcast') }}
                     </x-nav-link>
                     @if(auth()->user()->isSuperadmin())
@@ -34,6 +34,9 @@
 
                         <x-nav-link :href="route('agents.index')" :active="request()->routeIs('agents.*')">
                             {{ __('Agen') }}
+                        </x-nav-link>
+                        <x-nav-link :href="route('auto-replies.index')" :active="request()->routeIs('auto-replies.*')">
+                            {{ __('Pesan Otomatis') }}
                         </x-nav-link>
                         <x-nav-link :href="route('reports.index')" :active="request()->routeIs('reports.index')">
                             {{ __('Laporan') }}
@@ -104,7 +107,7 @@
             <x-responsive-nav-link :href="route('messages.index')" :active="request()->routeIs('messages.*')">
                 {{ __('Live Chat') }}
             </x-responsive-nav-link>
-            <x-responsive-nav-link :href="route('broadcast.create')" :active="request()->routeIs('broadcast.*')">
+            <x-responsive-nav-link :href="route('broadcast.index')" :active="request()->routeIs('broadcast.*')">
                         {{ __('Broadcast') }}
             </x-responsive-nav-link>
             @if(auth()->user()->isSuperadmin())
@@ -120,6 +123,9 @@
 
                 <x-responsive-nav-link :href="route('agents.index')" :active="request()->routeIs('agents.*')">
                     {{ __('Agen') }}
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('auto-replies.index')" :active="request()->routeIs('auto-replies.*')">
+                    {{ __('Pesan Otomatis') }}
                 </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('api-docs.index')" :active="request()->routeIs('api-docs.*')">
                     {{ __('API Docs') }}

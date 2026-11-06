@@ -29,7 +29,7 @@ class AgentController extends Controller
     {
         $user = auth()->user();
 
-        $deviceQuery = Device::where('status', 'connected');
+        $deviceQuery = Device::query();
 
         // Jika yang login Admin, hanya tampilkan device miliknya untuk dipilih
         if ($user->isAdmin()) {
@@ -47,7 +47,8 @@ class AgentController extends Controller
             'username' => ['required', 'string', 'max:255', 'unique:users'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users'],
             'password' => ['required', 'confirmed', 'min:4'],
-            'devices' => ['array'],
+            'devices' => ['nullable', 'array'],
+            'devices.*' => ['exists:devices,id'],
         ]);
 
         $agent = User::create([
@@ -60,7 +61,12 @@ class AgentController extends Controller
         ]);
 
         if ($request->has('devices')) {
-            $agent->handledDevices()->sync($request->devices);
+            $devicesToSync = $request->input('devices', []);
+            if (auth()->user()->isAdmin()) {
+                $allowedIds = Device::where('user_id', auth()->id())->pluck('id')->toArray();
+                $devicesToSync = array_values(array_intersect($devicesToSync, $allowedIds));
+            }
+            $agent->handledDevices()->sync($devicesToSync);
         }
 
         return redirect()->route('agents.index')->with('success', 'Agen berhasil ditambahkan.');
@@ -73,7 +79,19 @@ class AgentController extends Controller
             return redirect()->route('agents.index')->with('error', 'Akses ditolak.');
         }
 
-        return view('agents.edit', compact('agent'));
+        $user = auth()->user();
+        $deviceQuery = Device::query();
+
+        if ($user->isAdmin()) {
+            $deviceQuery->where('user_id', $user->id);
+        } elseif ($agent->parent_id) {
+            $deviceQuery->where('user_id', $agent->parent_id);
+        }
+
+        $devices = $deviceQuery->get();
+        $assignedDeviceIds = $agent->handledDevices()->pluck('devices.id')->toArray();
+
+        return view('agents.edit', compact('agent', 'devices', 'assignedDeviceIds'));
     }
 
     public function update(Request $request, User $agent)
@@ -99,13 +117,15 @@ class AgentController extends Controller
         }
 
         // ==========================================
-        // JIKA YANG DI-SUBMIT ADALAH FORM INFO PROFIL
+        // JIKA YANG DI-SUBMIT ADALAH FORM INFO PROFIL & AKSES DEVICE
         // ==========================================
         $request->validate([
             'name' => ['required', 'string', 'max:255'],
             // Pengecekan unique mengabaikan ID agen ini sendiri agar tidak error saat klik save tanpa mengubah username
             'username' => ['required', 'string', 'max:255', 'unique:users,username,' . $agent->id],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email,' . $agent->id],
+            'devices' => ['nullable', 'array'],
+            'devices.*' => ['exists:devices,id'],
         ]);
 
         $agent->update([
@@ -114,7 +134,15 @@ class AgentController extends Controller
             'email' => $request->email,
         ]);
 
-        return redirect()->route('agents.index')->with('success', 'Informasi Profil Agen ' . $agent->name . ' berhasil diperbarui.');
+        $devicesToSync = $request->input('devices', []);
+        if (auth()->user()->isAdmin()) {
+            $allowedIds = Device::where('user_id', auth()->id())->pluck('id')->toArray();
+            $devicesToSync = array_values(array_intersect($devicesToSync, $allowedIds));
+        }
+
+        $agent->handledDevices()->sync($devicesToSync);
+
+        return redirect()->route('agents.index')->with('success', 'Informasi Profil dan Akses Device Agen ' . $agent->name . ' berhasil diperbarui.');
     }
 
     public function destroy(User $agent)

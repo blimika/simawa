@@ -10,7 +10,7 @@ class Ticket extends Model
     use HasFactory;
 
     protected $fillable = [
-        'ticket_number', 'device_id', 'number', 'customer_name', 'agent_id', 'status', 'tag', 'has_new_message'
+        'ticket_number', 'device_id', 'number', 'customer_name', 'avatar_url', 'agent_id', 'status', 'tag', 'has_new_message'
     ];
 
     public function device()

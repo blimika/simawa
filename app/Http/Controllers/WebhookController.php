@@ -198,15 +198,29 @@ class WebhookController extends Controller
                             ->first();
 
                 if ($ticket) {
-                    // Jika masih ada tiket open, cukup tandai ada pesan baru
-                    $ticket->update([
+                    // Jika masih ada tiket open, tandai ada pesan baru
+                    $updateData = [
                         'has_new_message' => true,
-                        'customer_name' => $fromName
-                    ]);
+                        'customer_name' => $fromName,
+                    ];
+                    if (empty($ticket->avatar_url)) {
+                        $avatarRes = $gowa->getUserAvatar($device->gowa_session_id, $senderNumber, true);
+                        if (!empty($avatarRes['results']['url'])) {
+                            $updateData['avatar_url'] = $avatarRes['results']['url'];
+                        }
+                    }
+                    $ticket->update($updateData);
                 } else {
                     // =============================================================
                     // KONDISI: TIKET BARU / TIKET SEBELUMNYA SUDAH CLOSED
                     // =============================================================
+
+                    // Ambil avatar kontak dari WhatsApp
+                    $avatarUrl = null;
+                    try {
+                        $avatarRes = $gowa->getUserAvatar($device->gowa_session_id, $senderNumber, true);
+                        $avatarUrl = $avatarRes['results']['url'] ?? null;
+                    } catch (\Exception $e) {}
 
                     // Buat variabel pendukung pesan pembuka
                     $ticketNumber = 'LYN-' . date('ymd') . '-' . strtoupper(Str::random(4));
@@ -219,18 +233,14 @@ class WebhookController extends Controller
                         'device_id' => $device->id,
                         'number' => $senderNumber,
                         'customer_name' => $fromName,
+                        'avatar_url' => $avatarUrl,
                         'agent_id' => null, // Bebas untuk diambil agen lain
                         'status' => 'open',
                         'has_new_message' => true
                     ]);
 
-                    // B. Rangkai Teks Pesan Pembuka Otomatis Sesuai Request
-                    $greetingMessage = "Halo Bapak/Ibu {$customerName},\n"
-                                    . "Terima kasih telah menghubungi layanan WhatsApp {$deviceName}.\n\n"
-                                    . "Pesan Bapak/Ibu telah kami terima dengan\n"
-                                    . "nomor tiket: {$ticketNumber}.\n\n"
-                                    . "Operator kami akan menindaklanjuti pesan Bapak/Ibu pada jam layanan.\n\n"
-                                    . "Terima kasih.";
+                    // B. Rangkai Teks Pesan Pembuka Otomatis Sesuai Request / Custom Template
+                    $greetingMessage = $device->getFormattedGreetingMessage($customerName, $ticketNumber);
 
                     // C. Kirim Pesan Pembuka ke WhatsApp Pelanggan via GOWA
                     $sendGreeting = $gowa->sendMessage(

@@ -6,12 +6,41 @@
     </x-slot>
 
     <div class="py-12">
-        <div class="max-w-3xl mx-auto sm:px-6 lg:px-8">
+        <div class="w-full px-4 sm:px-6 lg:px-8">
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg border border-gray-200">
 
                 <form action="{{ route('devices.update', $device->id) }}" method="POST" class="p-6 space-y-6">
                     @csrf
                     @method('PUT')
+
+                    @if($device->status === 'connected')
+                        <div class="p-4 bg-emerald-50 rounded-xl border border-emerald-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+                            <div class="flex items-center gap-3.5">
+                                <div class="relative shrink-0">
+                                    @if(!empty($device->whatsapp_avatar))
+                                        <img src="{{ $device->whatsapp_avatar }}" alt="{{ $device->whatsapp_name }}" class="w-12 h-12 rounded-full object-cover border-2 border-emerald-400 shadow-sm" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                        <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 font-bold text-sm uppercase items-center justify-center border-2 border-emerald-300 shadow-sm" style="display: none;">
+                                            {{ strtoupper(substr($device->whatsapp_name ?: ($device->phone_number ?: 'WA'), 0, 2)) }}
+                                        </div>
+                                    @else
+                                        <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm uppercase border-2 border-emerald-300 shadow-sm">
+                                            {{ strtoupper(substr($device->whatsapp_name ?: ($device->phone_number ?: 'WA'), 0, 2)) }}
+                                        </div>
+                                    @endif
+                                    <span class="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full"></span>
+                                </div>
+                                <div>
+                                    <div class="text-[11px] text-emerald-800 font-bold uppercase tracking-wider">Akun WhatsApp Terhubung</div>
+                                    <div class="text-base font-bold text-gray-900">{{ $device->whatsapp_name ?: 'Akun WhatsApp' }}</div>
+                                    <div class="text-xs font-mono text-gray-600 mt-0.5">+{{ $device->phone_number }}</div>
+                                </div>
+                            </div>
+                            <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full text-xs font-bold shrink-0">
+                                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                Sesi Terhubung
+                            </span>
+                        </div>
+                    @endif
                     @if(auth()->user()->isSuperadmin())
                         <div class="p-4 bg-indigo-50 rounded-md border border-indigo-100 mb-6">
                             <label class="block text-sm font-bold text-indigo-900 flex items-center gap-1.5 mb-1">
@@ -76,6 +105,52 @@
                         </select>
                         <p class="text-[11px] text-gray-400 mt-1">Apabila memilih opsi "Hanya Forward", SIMAWA murni bekerja sebagai proxy tanpa mencatat pesan ke antrean ruang obrolan Live Chat.</p>
                         @error('is_livechat_enabled') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
+                    </div>
+
+                    <!-- Kustomisasi Pesan Otomatis (Live Chat) -->
+                    <div class="p-5 bg-gray-50 rounded-xl border border-gray-200 space-y-4">
+                        <div class="flex items-center justify-between border-b border-gray-200 pb-3">
+                            <div>
+                                <h3 class="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                                    <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+                                    Kustomisasi Pesan Otomatis (Live Chat)
+                                </h3>
+                                <p class="text-xs text-gray-500 mt-0.5">Edit pesan pembuka, pesan saat agen melayani, dan pesan penutup untuk device ini.</p>
+                            </div>
+                            <a href="{{ route('auto-replies.index', ['device_id' => $device->id]) }}" class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1">
+                                Mode Editor Penuh &rarr;
+                            </a>
+                        </div>
+
+                        <!-- 1. Salam Pembuka -->
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="block text-xs font-semibold text-gray-700">1. Salam Pembuka (Tiket Baru)</label>
+                                <span class="text-[10px] text-gray-400 font-mono">{nama}, {nomor_tiket}, {device}</span>
+                            </div>
+                            <textarea name="greeting_message" rows="4" class="w-full text-xs border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-sans" placeholder="Kosongkan jika ingin menggunakan pesan pembuka bawaan sistem...">{{ old('greeting_message', $device->greeting_message) }}</textarea>
+                            @error('greeting_message') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
+                        </div>
+
+                        <!-- 2. Pesan Diambil Agen -->
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="block text-xs font-semibold text-gray-700">2. Pesan Diambil oleh Agen (Klaim Tiket)</label>
+                                <span class="text-[10px] text-gray-400 font-mono">{agen}, {nama}, {device}</span>
+                            </div>
+                            <textarea name="claim_message" rows="2" class="w-full text-xs border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-sans" placeholder="Kosongkan jika ingin menggunakan pesan klaim bawaan sistem...">{{ old('claim_message', $device->claim_message) }}</textarea>
+                            @error('claim_message') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
+                        </div>
+
+                        <!-- 3. Salam Penutup -->
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="block text-xs font-semibold text-gray-700">3. Salam Penutup (Tiket Selesai)</label>
+                                <span class="text-[10px] text-gray-400 font-mono">{nama}, {nomor_tiket}, {device}, {agen}</span>
+                            </div>
+                            <textarea name="closing_message" rows="4" class="w-full text-xs border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-sans" placeholder="Kosongkan jika ingin menggunakan pesan penutup bawaan sistem...">{{ old('closing_message', $device->closing_message) }}</textarea>
+                            @error('closing_message') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
+                        </div>
                     </div>
 
                     <div class="pt-4 border-t border-gray-100 flex justify-end gap-2">

@@ -34,7 +34,7 @@
             }
         }
     }">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-8">
+        <div class="w-full px-4 sm:px-6 lg:px-8 space-y-8">
 
             <!-- 1. KOTAK PEMILIHAN DEVICE & API KEY AKTIF -->
             <div class="bg-gradient-to-r from-blue-700 via-indigo-700 to-indigo-800 rounded-2xl shadow-lg p-6 sm:p-8 text-white relative overflow-hidden">

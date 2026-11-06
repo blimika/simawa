@@ -6,7 +6,7 @@
     </x-slot>
 
     <div class="py-12">
-        <div class="max-w-2xl mx-auto sm:px-6 lg:px-8">
+        <div class="w-full px-4 sm:px-6 lg:px-8">
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
 
                 <form method="POST" action="{{ route('agents.store') }}">
@@ -48,16 +48,34 @@
                     <!-- Pilihan Device -->
                     <div class="mb-6 border-t border-gray-200 pt-4">
                         <label class="block font-bold text-sm text-gray-800 mb-2">Pilih Akses Device (Opsional)</label>
-                        <p class="text-xs text-gray-500 mb-3">Tentukan device WhatsApp mana saja yang bisa digunakan oleh agen ini untuk membalas pesan.</p>
+                        <p class="text-xs text-gray-500 mb-3">Tentukan device WhatsApp mana saja yang bisa digunakan oleh agen ini untuk melihat dan membalas pesan di Live Chat.</p>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                             @forelse($devices as $device)
-                                <label class="inline-flex items-center p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50">
-                                    <input type="checkbox" name="devices[]" value="{{ $device->id }}" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500">
-                                    <span class="ml-2 text-sm text-gray-700 font-medium">{{ $device->name }}</span>
+                                <label class="flex items-center justify-between p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition">
+                                    <div class="flex items-center">
+                                        <input type="checkbox" name="devices[]" value="{{ $device->id }}" {{ in_array($device->id, old('devices', [])) ? 'checked' : '' }} class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500">
+                                        <div class="ml-2">
+                                            <span class="text-sm text-gray-800 font-medium block">{{ $device->name }}</span>
+                                            @if($device->phone_number)
+                                                <span class="text-xs text-gray-500 font-mono">{{ $device->phone_number }}</span>
+                                            @endif
+                                        </div>
+                                    </div>
+                                    @if($device->status === 'connected')
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-green-100 text-green-800">
+                                            Terhubung
+                                        </span>
+                                    @else
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-600">
+                                            Terputus
+                                        </span>
+                                    @endif
                                 </label>
                             @empty
-                                <div class="col-span-2 text-sm text-red-500 italic">Belum ada device yang berstatus Terhubung. Pastikan ada device yang terkoneksi terlebih dahulu.</div>
+                                <div class="col-span-2 text-sm text-amber-600 italic bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                    Belum ada device WhatsApp yang terdaftar. Silakan daftarkan device terlebih dahulu pada menu Device.
+                                </div>
                             @endforelse
                         </div>
                     </div>

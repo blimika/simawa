@@ -11,7 +11,7 @@
     </x-slot>
 
     <div class="py-12">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+        <div class="w-full px-4 sm:px-6 lg:px-8">
 
             @if(session('success'))
                 <div class="mb-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative">
@@ -50,6 +50,11 @@
                                     </td>
                                     <td class="py-3 px-4 text-center">
                                         <div class="flex justify-center items-center gap-2">
+                                            @if($admin->devices->isNotEmpty())
+                                                <a href="{{ route('auto-replies.index') }}?device_id={{ $admin->devices->first()->id }}" class="text-indigo-600 hover:text-indigo-900 text-sm font-medium bg-indigo-50 py-1 px-3 rounded border border-indigo-200 hover:bg-indigo-100 transition" title="Kustomisasi Pesan Otomatis Admin Ini">
+                                                    Pesan Otomatis
+                                                </a>
+                                            @endif
                                             <a href="{{ route('admins.edit', $admin->id) }}" class="text-blue-600 hover:text-blue-900 text-sm font-medium bg-blue-50 py-1 px-3 rounded border border-blue-200 hover:bg-blue-100 transition">
                                                 Ganti Password
                                             </a>

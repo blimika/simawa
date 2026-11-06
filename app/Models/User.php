@@ -73,7 +73,7 @@ class User extends Authenticatable
     // Relasi: Device yang ditugaskan kepada Agen ini (Many-to-Many)
     public function handledDevices()
     {
-        return $this->belongsToMany(Device::class, 'agent_device', 'user_id', 'device_id');
+        return $this->belongsToMany(Device::class, 'agent_device', 'user_id', 'device_id')->withTimestamps();
     }
     // Relasi: Mendapatkan Admin dari seorang Agent
     public function supervisor()

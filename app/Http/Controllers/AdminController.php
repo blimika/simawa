@@ -17,6 +17,7 @@ class AdminController extends Controller
                         'subordinates as agents_count',
                         'devices as devices_count' // Menghitung relasi devices()
                     ])
+                    ->with('devices')
                     ->latest()
                     ->paginate(10);
 

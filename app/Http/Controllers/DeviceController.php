@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Services\GowaService; // Import Service yang baru dibuat
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rules;
 
 class DeviceController extends Controller
@@ -13,7 +14,7 @@ class DeviceController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(GowaService $gowa)
     {
         $user = auth()->user();
 
@@ -28,6 +29,43 @@ class DeviceController extends Controller
         } else {
             // Agent lihat milik Admin-nya (parent_id)
             $devices = $query->where('user_id', $user->parent_id)->latest()->paginate(10);
+        }
+
+        // Sinkronisasi info profil WhatsApp (nama & avatar) untuk setiap device yang terhubung
+        foreach ($devices as $device) {
+            if ($device->status === 'connected') {
+                $cacheKey = "device_wa_profile_{$device->id}";
+                $profile = Cache::remember($cacheKey, now()->addMinutes(30), function () use ($gowa, $device) {
+                    return $gowa->getConnectedWhatsAppProfile($device->gowa_session_id);
+                });
+
+                if ($profile) {
+                    $needsUpdate = false;
+                    $updateData = [];
+
+                    if (!empty($profile['name']) && $device->whatsapp_name !== $profile['name']) {
+                        $updateData['whatsapp_name'] = $profile['name'];
+                        $device->whatsapp_name = $profile['name'];
+                        $needsUpdate = true;
+                    }
+
+                    if (!empty($profile['avatar']) && $device->whatsapp_avatar !== $profile['avatar']) {
+                        $updateData['whatsapp_avatar'] = $profile['avatar'];
+                        $device->whatsapp_avatar = $profile['avatar'];
+                        $needsUpdate = true;
+                    }
+
+                    if (!empty($profile['phone']) && $device->phone_number !== $profile['phone']) {
+                        $updateData['phone_number'] = $profile['phone'];
+                        $device->phone_number = $profile['phone'];
+                        $needsUpdate = true;
+                    }
+
+                    if ($needsUpdate) {
+                        $device->update($updateData);
+                    }
+                }
+            }
         }
 
         return view('devices.index', compact('devices'));
@@ -117,6 +155,9 @@ class DeviceController extends Controller
             'webhook_url' => 'nullable|url|max:255',
             'is_livechat_enabled' => 'required|boolean',
             'api_key' => 'nullable|string|max:255|unique:devices,api_key,' . $device->id,
+            'greeting_message' => 'nullable|string',
+            'claim_message' => 'nullable|string',
+            'closing_message' => 'nullable|string',
         ];
 
         // Validasi tambahan: Jika yang mengedit adalah Super Admin, wajib menyertakan user_id tujuan
@@ -135,6 +176,9 @@ class DeviceController extends Controller
             'webhook_url' => $request->webhook_url,
             'is_livechat_enabled' => $request->is_livechat_enabled,
             'api_key' => $request->api_key,
+            'greeting_message' => $request->greeting_message,
+            'claim_message' => $request->claim_message,
+            'closing_message' => $request->closing_message,
         ];
         //$updateData['api_key'] = $request->api_key;
         // Jalankan pemindahan kepemilikan jika diset oleh Super Admin
@@ -268,10 +312,24 @@ class DeviceController extends Controller
                 $updateData['phone_number'] = $phone;
             }
 
+            // Jika terhubung, ambil dan perbarui profil WhatsApp (nama & avatar)
+            if ($newStatus === 'connected') {
+                Cache::forget("device_wa_profile_{$device->id}");
+                $profile = $gowa->getConnectedWhatsAppProfile($device->gowa_session_id);
+                if ($profile) {
+                    if (!empty($profile['name'])) $updateData['whatsapp_name'] = $profile['name'];
+                    if (!empty($profile['avatar'])) $updateData['whatsapp_avatar'] = $profile['avatar'];
+                    if (!empty($profile['phone'])) $updateData['phone_number'] = $profile['phone'];
+                }
+            } else {
+                Cache::forget("device_wa_profile_{$device->id}");
+            }
+
             $device->update($updateData);
 
             if ($newStatus === 'connected') {
-                return back()->with('success', 'Sinkronisasi berhasil: Device Anda SEDANG TERHUBUNG (Logged In).');
+                $accountInfo = !empty($device->whatsapp_name) ? " (Akun: {$device->whatsapp_name})" : "";
+                return back()->with('success', "Sinkronisasi berhasil: Device Anda SEDANG TERHUBUNG{$accountInfo}.");
             } else {
                 return back()->with('error', 'Sinkronisasi selesai: Device Anda BELUM TERHUBUNG (Disconnected).');
             }
@@ -299,7 +357,12 @@ class DeviceController extends Controller
     {
         try {
             $response = $gowa->logoutDevice($device->gowa_session_id);
-            $device->update(['status' => 'disconnected']);
+            Cache::forget("device_wa_profile_{$device->id}");
+            $device->update([
+                'status' => 'disconnected',
+                'whatsapp_name' => null,
+                'whatsapp_avatar' => null,
+            ]);
             return back()->with('success', 'Sesi WhatsApp pada device ' . $device->name . ' berhasil diputus (Logout).');
         } catch (\Exception $e) {
             return back()->with('error', 'Terjadi kesalahan saat logout: ' . $e->getMessage());
@@ -405,15 +468,29 @@ class DeviceController extends Controller
                     if (!$phone && $jid) {
                         $phone = explode('@', explode(':', $jid)[0])[0];
                     }
+
+                    $updateData = ['status' => $status];
                     if ($phone && $device->phone_number !== $phone) {
-                        $device->update(['phone_number' => $phone]);
+                        $updateData['phone_number'] = $phone;
                     }
 
-                    if ($device->status !== $status) {
-                        $device->update(['status' => $status]);
+                    if (empty($device->whatsapp_name) || empty($device->whatsapp_avatar)) {
+                        $profile = $gowa->getConnectedWhatsAppProfile($device->gowa_session_id);
+                        if ($profile) {
+                            if (!empty($profile['name'])) $updateData['whatsapp_name'] = $profile['name'];
+                            if (!empty($profile['avatar'])) $updateData['whatsapp_avatar'] = $profile['avatar'];
+                            if (!empty($profile['phone'])) $updateData['phone_number'] = $profile['phone'];
+                        }
                     }
 
-                    return response()->json(['status' => $status, 'phone_number' => $device->phone_number]);
+                    $device->update($updateData);
+
+                    return response()->json([
+                        'status' => $status,
+                        'phone_number' => $device->phone_number,
+                        'whatsapp_name' => $device->whatsapp_name,
+                        'whatsapp_avatar' => $device->whatsapp_avatar,
+                    ]);
                 } else {
                     if ($device->status !== 'disconnected') {
                         $device->update(['status' => 'disconnected']);
@@ -506,12 +583,23 @@ class DeviceController extends Controller
                         if (!empty($phoneNumber)) {
                             $updateData['phone_number'] = $phoneNumber;
                         }
+                        if ($simawaStatus === 'connected') {
+                            $profile = $gowa->getConnectedWhatsAppProfile($gowaId);
+                            if ($profile) {
+                                if (!empty($profile['name'])) $updateData['whatsapp_name'] = $profile['name'];
+                                if (!empty($profile['avatar'])) $updateData['whatsapp_avatar'] = $profile['avatar'];
+                                if (!empty($profile['phone'])) $updateData['phone_number'] = $profile['phone'];
+                            }
+                        }
                         $device->update($updateData);
                         $updated++;
                     } else {
+                        $profile = $simawaStatus === 'connected' ? $gowa->getConnectedWhatsAppProfile($gowaId) : null;
                         Device::create([
                             'name' => $deviceName,
-                            'phone_number' => $phoneNumber ?? '',
+                            'phone_number' => $profile['phone'] ?? ($phoneNumber ?? ''),
+                            'whatsapp_name' => $profile['name'] ?? null,
+                            'whatsapp_avatar' => $profile['avatar'] ?? null,
                             'gowa_session_id' => $gowaId,
                             'status' => $simawaStatus,
                             'webhook_url' => null,

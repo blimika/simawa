@@ -9,7 +9,7 @@ class Phonebook extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['user_id', 'name', 'number','category'];
+    protected $fillable = ['user_id', 'name', 'number', 'category', 'avatar_url'];
 
     // Relasi ke User (Admin pembuat/pemilik kontak)
     public function owner()

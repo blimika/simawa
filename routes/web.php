@@ -10,6 +10,7 @@ use App\Http\Controllers\MessageController;
 use App\Http\Controllers\BroadcastController;
 use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\AutoReplyController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -81,6 +82,11 @@ Route::middleware(['auth', 'active.user'])->group(function () {
         // Manage Agents
         Route::resource('agents', AgentController::class);
 
+        // Kustomisasi Pesan Otomatis Live Chat (Salam Pembuka, Diambil Agen, Salam Penutup)
+        Route::get('/auto-replies', [AutoReplyController::class, 'index'])->name('auto-replies.index');
+        Route::put('/auto-replies/{device}', [AutoReplyController::class, 'update'])->name('auto-replies.update');
+        Route::post('/auto-replies/{device}/reset', [AutoReplyController::class, 'reset'])->name('auto-replies.reset');
+
         // Halaman Dokumentasi API (Hanya Admin & Superadmin)
         Route::get('/api-docs', [App\Http\Controllers\ApiDocController::class, 'index'])->name('api-docs.index');
     });
@@ -92,6 +98,9 @@ Route::middleware(['auth', 'active.user'])->group(function () {
         Route::get('/phonebook/template', [PhonebookController::class, 'downloadTemplate'])->name('phonebook.template');
         Route::post('/phonebook/import', [PhonebookController::class, 'import'])->name('phonebook.import');
         Route::post('/phonebook/bulk-delete', [PhonebookController::class, 'bulkDelete'])->name('phonebook.bulk-delete');
+        Route::post('/phonebook/save-wa', [PhonebookController::class, 'saveWaContact'])->name('phonebook.save-wa');
+        Route::post('/phonebook/import-wa', [PhonebookController::class, 'importWaContacts'])->name('phonebook.import-wa');
+        Route::post('/phonebook/import-all-wa', [PhonebookController::class, 'importAllWaContacts'])->name('phonebook.import-all-wa');
         Route::put('phonebook/{id}', [App\Http\Controllers\PhonebookController::class, 'update'])->name('phonebook.update');
         // Rute Resource otomatis untuk index, create, store, edit, update, destroy
         Route::resource('phonebook', PhonebookController::class);
@@ -101,9 +110,16 @@ Route::middleware(['auth', 'active.user'])->group(function () {
         Route::post('messages/{ticket}/tag', [App\Http\Controllers\MessageController::class, 'updateTag'])->name('messages.update_tag');
         Route::post('messages/{ticket}/start', [App\Http\Controllers\MessageController::class, 'startService'])->name('messages.start');
         Route::resource('messages', MessageController::class)->only(['index', 'store']);
-        // Fitur Broadcast
-        Route::get('broadcast', [BroadcastController::class, 'create'])->name('broadcast.create');
+        // Fitur Broadcast (Pesan Massal Anti-Blokir & Terjadwal)
+        Route::get('broadcast', [BroadcastController::class, 'index'])->name('broadcast.index');
+        Route::get('broadcast/create', [BroadcastController::class, 'create'])->name('broadcast.create');
         Route::post('broadcast', [BroadcastController::class, 'store'])->name('broadcast.store');
+        Route::get('broadcast/{campaign}', [BroadcastController::class, 'show'])->name('broadcast.show');
+        Route::get('broadcast/{campaign}/status-json', [BroadcastController::class, 'statusJson'])->name('broadcast.status_json');
+        Route::post('broadcast/{campaign}/pause', [BroadcastController::class, 'pause'])->name('broadcast.pause');
+        Route::post('broadcast/{campaign}/resume', [BroadcastController::class, 'resume'])->name('broadcast.resume');
+        Route::post('broadcast/{campaign}/retry-failed', [BroadcastController::class, 'retryFailed'])->name('broadcast.retry_failed');
+        Route::delete('broadcast/{campaign}', [BroadcastController::class, 'destroy'])->name('broadcast.destroy');
 
         Route::get('/webhook-logs', [WebhookController::class, 'index'])->name('webhook-logs.index');
         Route::post('/webhook-logs/clear', [WebhookController::class, 'clear'])->name('webhook-logs.clear');

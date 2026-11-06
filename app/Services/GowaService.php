@@ -465,6 +465,84 @@ class GowaService
     }
 
     /**
+     * Mengambil daftar kontak WhatsApp yang tersimpan di akun WhatsApp device
+     * GOWA v9 Endpoint: GET /user/my/contacts
+     * Header: X-Device-Id: {device_id}
+     */
+    public function getMyContacts(string $deviceId): ?array
+    {
+        try {
+            $response = $this->client($deviceId)->get($this->baseUrl . '/user/my/contacts');
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Get My Contacts): ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Mengambil URL avatar profil WhatsApp untuk nomor tertentu
+     * GOWA v9 Endpoint: GET /user/avatar?phone={phone}&is_preview={preview}
+     */
+    public function getUserAvatar(string $deviceId, string $phone, bool $isPreview = true): ?array
+    {
+        try {
+            $response = $this->client($deviceId)->get($this->baseUrl . '/user/avatar', [
+                'phone' => $phone,
+                'is_preview' => $isPreview ? 'true' : 'false',
+            ]);
+            return $response->json();
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Get User Avatar): ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Mengambil profil lengkap akun WhatsApp yang sedang terhubung pada device
+     * Menggabungkan informasi dari /devices/{device_id} dan /user/avatar
+     */
+    public function getConnectedWhatsAppProfile(string $deviceId): ?array
+    {
+        try {
+            $deviceInfo = $this->getDevice($deviceId);
+            $results = $deviceInfo['results'] ?? [];
+
+            $state = strtolower($results['state'] ?? '');
+            $isLoggedIn = in_array($state, ['logged_in', 'connected']);
+
+            if (!$isLoggedIn && empty($results['jid'])) {
+                return null;
+            }
+
+            $displayName = $results['display_name'] ?? null;
+            $jid = $results['jid'] ?? '';
+            $phone = null;
+            if ($jid) {
+                $phone = explode('@', explode(':', $jid)[0])[0];
+            }
+
+            $avatarUrl = null;
+            if ($phone) {
+                $avatarRes = $this->getUserAvatar($deviceId, $phone, true);
+                $avatarUrl = $avatarRes['results']['url'] ?? null;
+            }
+
+            return [
+                'name' => $displayName ?: $phone,
+                'phone' => $phone,
+                'jid' => $jid,
+                'avatar' => $avatarUrl,
+                'state' => $state,
+                'is_logged_in' => $isLoggedIn,
+            ];
+        } catch (\Exception $e) {
+            Log::error('GOWA API Error (Get Connected WhatsApp Profile): ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Mengambil konfigurasi webhook spesifik device
      * GOWA v9 Endpoint: GET /devices/{device_id}/webhook
      */
