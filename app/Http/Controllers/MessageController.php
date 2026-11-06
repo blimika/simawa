@@ -113,10 +113,49 @@ class MessageController extends Controller
             }
         }
 
-        // 6. Kirim semua variabel ke file View
-        $agents = User::where('id', '!=', auth()->id())->get();
-        //return view('messages.index', compact('tickets', 'messages', 'contacts', 'activeTicket', 'agents'));
-        return view('messages.index', compact('devices', 'tickets', 'activeTicket', 'messages', 'contactName', 'contacts','agents'));
+        // 6. Ambil daftar Agen yang memenuhi syarat untuk dialihkan
+        if ($activeTicket && $activeTicket->device) {
+            $device = $activeTicket->device;
+
+            // Ambil agen aktif yang ditugaskan ke device ini
+            $deviceAgents = $device->agents()->where('is_active', true)->get();
+
+            // Jika belum ada agen khusus yang di-assign ke device, ambil semua agen aktif di bawah admin pemilik device
+            if ($deviceAgents->isEmpty()) {
+                $deviceAgents = User::where('parent_id', $device->user_id)
+                    ->where('role', 'agent')
+                    ->where('is_active', true)
+                    ->get();
+            }
+
+            // Sertakan owner device (Admin) jika aktif
+            if ($device->owner && $device->owner->is_active) {
+                $deviceAgents->push($device->owner);
+            }
+
+            // Jika Super Admin yang login, sertakan semua admin/agen aktif
+            if ($user->isSuperadmin()) {
+                $allAssignable = User::where('is_active', true)
+                    ->whereIn('role', ['agent', 'admin'])
+                    ->get();
+                $deviceAgents = $deviceAgents->merge($allAssignable);
+            }
+
+            // Filter agar tidak menyertakan user yang sedang login dan pastikan unik
+            $agents = $deviceAgents->reject(fn($u) => $u->id === $user->id)->unique('id')->values();
+        } else {
+            $agentsQuery = User::where('is_active', true)->where('id', '!=', $user->id);
+            if ($user->isAdmin()) {
+                $agentsQuery->where(function($q) use ($user) {
+                    $q->where('parent_id', $user->id)->orWhere('id', $user->id);
+                });
+            } elseif ($user->isAgent()) {
+                $agentsQuery->where('parent_id', $user->parent_id)->orWhere('id', $user->parent_id);
+            }
+            $agents = $agentsQuery->get();
+        }
+
+        return view('messages.index', compact('devices', 'tickets', 'activeTicket', 'messages', 'contactName', 'contacts', 'agents'));
     }
 
     /**
@@ -357,27 +396,57 @@ class MessageController extends Controller
     /**
      * FUNGSI TRANSFER & AMBIL ALIH TIKET LIVE CHAT
      */
-    public function transferTicket(Request $request, $id)
+    public function transferTicket(Request $request, Ticket $ticket)
     {
-        $ticket = Ticket::findOrFail($id);
         $currentUser = auth()->user();
 
+        // 1. Cek apakah tiket masih terbuka
+        if ($ticket->status !== 'open') {
+            return back()->with('error', 'Tiket sudah ditutup dan tidak dapat dialihkan.');
+        }
+
+        // 2. Cek hak akses: Superadmin, Admin pemilik device, atau Agen yang bertugas / di device terkait
+        $isSuperadmin = $currentUser->isSuperadmin();
+        $isAdmin = $currentUser->isAdmin() && $ticket->device && $ticket->device->user_id === $currentUser->id;
+        $isCurrentAgent = $ticket->agent_id === $currentUser->id;
+        $isDeviceAgent = $ticket->device && $ticket->device->agents()->where('users.id', $currentUser->id)->exists();
+
+        if (!$isSuperadmin && !$isAdmin && !$isCurrentAgent && !$isDeviceAgent && !is_null($ticket->agent_id)) {
+            return back()->with('error', 'Anda tidak memiliki hak akses untuk mengalihkan tiket ini.');
+        }
+
+        // Tangkap target agent ID baik dari 'target_agent_id' maupun 'agent_id'
+        $targetAgentId = $request->input('target_agent_id') ?: $request->input('agent_id');
+
         // SKENARIO 1: AMBIL ALIH (TAKE OVER)
-        // Jika request tidak mengirim ID agen tujuan, berarti agen menekan tombol "Ambil Alih"
-        if (!$request->has('target_agent_id')) {
+        if (empty($targetAgentId) || $request->input('action') === 'take_over') {
             $ticket->update(['agent_id' => $currentUser->id]);
-            return back()->with('success', 'Tiket berhasil Anda ambil alih!');
+            return redirect()->route('messages.index', ['ticket_id' => $ticket->id])
+                ->with('success', 'Tiket berhasil Anda ambil alih!');
         }
 
         // SKENARIO 2: TRANSFER KE AGEN LAIN
         $request->validate([
-            'target_agent_id' => 'required|exists:users,id'
+            'target_agent_id' => 'nullable|exists:users,id',
+            'agent_id' => 'nullable|exists:users,id',
         ]);
 
-        $ticket->update(['agent_id' => $request->target_agent_id]);
+        $targetAgent = User::findOrFail($targetAgentId);
 
-        // Setelah transfer berhasil, arahkan agen lama kembali ke daftar antrean pesan
-        return redirect()->route('messages.index')->with('success', 'Tiket berhasil ditransfer ke agen lain.');
+        $wasReassigned = !is_null($ticket->agent_id);
+        $ticket->update(['agent_id' => $targetAgent->id]);
+
+        $actionText = $wasReassigned ? 'dialihkan' : 'ditugaskan';
+
+        // Jika agen mentransfer tiketnya ke orang lain, arahkan ke daftar antrean pesan
+        if ($currentUser->isAgent() && $currentUser->id !== $targetAgent->id) {
+            return redirect()->route('messages.index')
+                ->with('success', "Tiket #{$ticket->ticket_number} berhasil {$actionText} ke {$targetAgent->name}.");
+        }
+
+        // Jika admin/superadmin atau ditugaskan ke diri sendiri, tetap buka tiket tersebut
+        return redirect()->route('messages.index', ['ticket_id' => $ticket->id])
+            ->with('success', "Tiket #{$ticket->ticket_number} berhasil {$actionText} ke {$targetAgent->name}.");
     }
 }
 

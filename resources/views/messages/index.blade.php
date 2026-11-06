@@ -179,6 +179,24 @@
                     {{-- AREA RUANG CHAT (KANAN)                                   --}}
                     {{-- ======================================================== --}}
                     <div class="flex-1 flex flex-col bg-[#efeae2] overflow-hidden">
+                        @if(session('success'))
+                            <div class="bg-emerald-600 text-white text-xs px-4 py-2.5 flex items-center justify-between shadow-xs z-20">
+                                <span class="flex items-center gap-2">
+                                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                    {{ session('success') }}
+                                </span>
+                                <button onclick="this.parentElement.remove()" class="text-white hover:text-emerald-100 font-bold ml-2">✕</button>
+                            </div>
+                        @endif
+                        @if(session('error'))
+                            <div class="bg-rose-600 text-white text-xs px-4 py-2.5 flex items-center justify-between shadow-xs z-20">
+                                <span class="flex items-center gap-2">
+                                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                    {{ session('error') }}
+                                </span>
+                                <button onclick="this.parentElement.remove()" class="text-white hover:text-rose-100 font-bold ml-2">✕</button>
+                            </div>
+                        @endif
                         @if($activeTicket)
                             {{-- Header Ruang Chat Aktif --}}
                             <div class="bg-white p-3.5 sm:p-4 border-b border-gray-200 flex justify-between items-center shadow-xs z-10">
@@ -237,6 +255,9 @@
                                             @if($activeTicket->device)
                                                 <span class="text-gray-400 font-sans">via <strong>{{ $activeTicket->device->name }}</strong></span>
                                             @endif
+                                            @if($activeTicket->agent)
+                                                <span class="text-gray-500 font-sans ml-1">• Agen: <strong class="text-indigo-700">{{ $activeTicket->agent->name }}</strong></span>
+                                            @endif
                                         </p>
                                     </div>
                                 </div>
@@ -245,15 +266,25 @@
                                 <div class="flex gap-2 items-center flex-wrap justify-end">
                                     @if($activeTicket->status === 'open')
                                         {{-- 1. Transfer Tiket --}}
-                                        @if(is_null($activeTicket->agent_id) || auth()->user()->isSuperadmin() || auth()->id() === $activeTicket->agent_id)
+                                        @if(is_null($activeTicket->agent_id) || auth()->user()->isSuperadmin() || auth()->user()->isAdmin() || auth()->id() === $activeTicket->agent_id)
                                             <form action="{{ route('messages.transfer', $activeTicket->id) }}" method="POST" class="flex items-center">
                                                 @csrf
-                                                <select name="agent_id" onchange="this.form.submit()" class="text-xs border-gray-300 rounded-lg shadow-xs py-1.5 pl-2.5 pr-7 focus:ring-indigo-500 focus:border-indigo-500 font-medium">
-                                                    <option value="">{{ $activeTicket->agent ? 'Alihkan Tiket' : 'Tugaskan Agen' }}</option>
-                                                    @foreach($agents as $agent)
-                                                        @if($agent->id !== $activeTicket->agent_id)
-                                                            <option value="{{ $agent->id }}">{{ $agent->name }}</option>
+                                                @php
+                                                    $availableAgents = $agents->where('id', '!=', $activeTicket->agent_id);
+                                                @endphp
+                                                <select name="target_agent_id" 
+                                                        onchange="if(this.value) { if(confirm('Alihkan tiket ini ke ' + this.options[this.selectedIndex].text + '?')) { this.form.submit(); } else { this.value = ''; } }" 
+                                                        class="text-xs border-gray-300 rounded-lg shadow-xs py-1.5 pl-2.5 pr-7 focus:ring-indigo-500 focus:border-indigo-500 font-medium cursor-pointer"
+                                                        {{ $availableAgents->isEmpty() ? 'disabled' : '' }}>
+                                                    <option value="">
+                                                        @if($availableAgents->isEmpty())
+                                                            Tidak ada agen lain
+                                                        @else
+                                                            {{ $activeTicket->agent ? 'Alihkan Tiket...' : 'Tugaskan Agen...' }}
                                                         @endif
+                                                    </option>
+                                                    @foreach($availableAgents as $agent)
+                                                        <option value="{{ $agent->id }}">{{ $agent->name }}{{ $agent->role === 'admin' ? ' (Admin)' : '' }}</option>
                                                     @endforeach
                                                 </select>
                                             </form>
@@ -273,7 +304,7 @@
                                         </form>
 
                                         {{-- 3. Tombol Selesai (Tutup Tiket) --}}
-                                        @if($activeTicket->agent_id === auth()->id() || auth()->user()->isSuperadmin())
+                                        @if($activeTicket->agent_id === auth()->id() || auth()->user()->isSuperadmin() || auth()->user()->isAdmin())
                                             <form action="{{ route('messages.close', $activeTicket->id) }}" method="POST" onsubmit="return confirm('Tandai tiket ini selesai dan kirim pesan penutup ke pelanggan?');">
                                                 @csrf
                                                 <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg transition shadow-xs flex items-center gap-1">
@@ -399,12 +430,20 @@
                                         </form>
                                     </div>
 
-                                @elseif($activeTicket->agent_id !== auth()->id() && !auth()->user()->isSuperadmin())
-                                    <div class="p-4 bg-amber-50 border-t border-amber-200 text-center">
-                                        <span class="text-amber-700 text-sm font-semibold flex items-center justify-center gap-2">
-                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-                                            Tiket ini sedang dilayani oleh agen lain.
+                                @elseif($activeTicket->agent_id !== auth()->id() && !auth()->user()->isSuperadmin() && !auth()->user()->isAdmin())
+                                    <div class="p-4 bg-amber-50 border-t border-amber-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+                                        <span class="text-amber-700 text-sm font-semibold flex items-center gap-2">
+                                            <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                                            Tiket ini sedang dilayani oleh <strong>{{ $activeTicket->agent ? $activeTicket->agent->name : 'agen lain' }}</strong>.
                                         </span>
+                                        <form action="{{ route('messages.transfer', $activeTicket->id) }}" method="POST" onsubmit="return confirm('Apakah Anda yakin ingin mengambil alih tiket ini?');">
+                                            @csrf
+                                            <input type="hidden" name="action" value="take_over">
+                                            <button type="submit" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition shadow-xs flex items-center gap-1.5 shrink-0">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path></svg>
+                                                Ambil Alih Tiket
+                                            </button>
+                                        </form>
                                     </div>
 
                                 @else
