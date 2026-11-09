@@ -255,28 +255,31 @@ class WebhookController extends Controller
                         'has_new_message' => true
                     ]);
 
-                    // B. Rangkai Teks Pesan Pembuka Otomatis Sesuai Request / Custom Template
-                    $greetingMessage = $device->getFormattedGreetingMessage($customerName, $ticketNumber);
+                    // B. Kirim Salam Pembuka Otomatis (Hanya jika fitur Salam Pembuka diaktifkan untuk device ini)
+                    if ($device->isGreetingEnabled()) {
+                        // Rangkai Teks Pesan Pembuka Otomatis Sesuai Request / Custom Template
+                        $greetingMessage = $device->getFormattedGreetingMessage($customerName, $ticketNumber);
 
-                    // C. Kirim Pesan Pembuka ke WhatsApp Pelanggan via GOWA
-                    $sendGreeting = $gowa->sendMessage(
-                        $device->gowa_session_id,
-                        $senderNumber,
-                        $greetingMessage
-                    );
+                        // C. Kirim Pesan Pembuka ke WhatsApp Pelanggan via GOWA
+                        $sendGreeting = $gowa->sendMessage(
+                            $device->gowa_session_id,
+                            $senderNumber,
+                            $greetingMessage
+                        );
 
-                    // D. Jika Pesan Pembuka Sukses Terkirim, Catat ke Tabel Messages
-                    if ($sendGreeting->successful()) {
-                        Message::create([
-                            'device_id' => $device->id,
-                            'user_id' => null, // null karena bot/sistem yang mengirim
-                            'number' => $senderNumber,
-                            'message' => $greetingMessage,
-                            'direction' => 'out', // Arah keluar
-                            'status' => 'sent',
-                        ]);
-                    } else {
-                        \Log::error("Gagal mengirim Auto-Reply Greeting ke nomor: " . $senderNumber);
+                        // D. Jika Pesan Pembuka Sukses Terkirim, Catat ke Tabel Messages
+                        if ($sendGreeting->successful()) {
+                            Message::create([
+                                'device_id' => $device->id,
+                                'user_id' => null, // null karena bot/sistem yang mengirim
+                                'number' => $senderNumber,
+                                'message' => $greetingMessage,
+                                'direction' => 'out', // Arah keluar
+                                'status' => 'sent',
+                            ]);
+                        } else {
+                            \Log::error("Gagal mengirim Auto-Reply Greeting ke nomor: " . $senderNumber);
+                        }
                     }
                 }
             }

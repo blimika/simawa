@@ -60,10 +60,10 @@ class MessageController extends Controller
                 $cacheKey = "wa_avatar_{$t->device->gowa_session_id}_{$t->number}";
                 $avatar = Cache::remember($cacheKey, now()->addHours(6), function () use ($gowa, $t) {
                     $res = $gowa->getUserAvatar($t->device->gowa_session_id, $t->number, true);
-                    return $res['results']['url'] ?? null;
+                    return $res['results']['url'] ?? 'none';
                 });
 
-                if ($avatar && $t->avatar_url !== $avatar) {
+                if (!empty($avatar) && $avatar !== 'none' && $t->avatar_url !== $avatar) {
                     $t->avatar_url = $avatar;
                     $t->update(['avatar_url' => $avatar]);
                 }
@@ -89,10 +89,10 @@ class MessageController extends Controller
                 $cacheKey = "wa_avatar_{$activeTicket->device->gowa_session_id}_{$activeTicket->number}";
                 $avatar = Cache::remember($cacheKey, now()->addHours(6), function () use ($gowa, $activeTicket) {
                     $res = $gowa->getUserAvatar($activeTicket->device->gowa_session_id, $activeTicket->number, true);
-                    return $res['results']['url'] ?? null;
+                    return $res['results']['url'] ?? 'none';
                 });
 
-                if ($avatar && $activeTicket->avatar_url !== $avatar) {
+                if (!empty($avatar) && $avatar !== 'none' && $activeTicket->avatar_url !== $avatar) {
                     $activeTicket->avatar_url = $avatar;
                     $activeTicket->update(['avatar_url' => $avatar]);
                 }
@@ -293,18 +293,16 @@ class MessageController extends Controller
             // 1. Ubah status tiket menjadi closed
             $ticket->update(['status' => 'closed']);
 
-            // 2. Siapkan Pesan Penutup (Otomatis mengambil custom template dari device)
+            // 2. Siapkan & Kirim Pesan Penutup (Hanya jika fitur Salam Penutup diaktifkan untuk device ini)
             $device = $ticket->device;
-            $customerName = $ticket->customer_name ?: 'Bapak/Ibu';
-            $ticketNumber = $ticket->ticket_number;
-            $agentName = auth()->user()->name;
+            if ($device && $device->isClosingEnabled()) {
+                $customerName = $ticket->customer_name ?: 'Bapak/Ibu';
+                $ticketNumber = $ticket->ticket_number;
+                $agentName = auth()->user()->name;
 
-            $closingMessage = $device
-                ? $device->getFormattedClosingMessage($customerName, $ticketNumber, $agentName)
-                : "Terima kasih Bapak/Ibu {$customerName}.\nNomor tiket {$ticketNumber} telah kami tandai selesai.";
+                $closingMessage = $device->getFormattedClosingMessage($customerName, $ticketNumber, $agentName);
 
-            // 3. Kirim Pesan via API GOWA
-            if ($device) {
+                // 3. Kirim Pesan via API GOWA
                 $response = $gowa->sendMessage(
                     $device->gowa_session_id,
                     $ticket->number,
@@ -324,7 +322,7 @@ class MessageController extends Controller
                 }
             }
 
-            return redirect()->route('messages.index')->with('success', 'Tiket ditutup dan pesan penutup otomatis terkirim!');
+            return redirect()->route('messages.index')->with('success', 'Tiket berhasil ditutup!');
         }
 
         return back()->with('error', 'Tiket sudah dalam keadaan tertutup.');
@@ -361,20 +359,18 @@ class MessageController extends Controller
         // 1. Klaim tiket ke agen yang mengeklik
         $ticket->update(['agent_id' => $user->id]);
 
-        // 2. Siapkan pesan otomatis (Otomatis mengambil custom template dari device)
+        // 2. Kirim pesan notifikasi klaim tiket (Hanya jika fitur Pesan Diambil Agen diaktifkan untuk device ini)
         $device = $ticket->device;
-        $customerName = $ticket->customer_name ?: 'Bapak/Ibu';
-        $ticketNumber = $ticket->ticket_number;
-        $agentName = $user->name;
+        if ($device && $device->isClaimEnabled()) {
+            $customerName = $ticket->customer_name ?: 'Bapak/Ibu';
+            $ticketNumber = $ticket->ticket_number;
+            $agentName = $user->name;
 
-        $claimMessage = $device
-            ? $device->getFormattedClaimMessage($agentName, $customerName, $ticketNumber)
-            : "Permintaan/tiket Bapak/Ibu saat ini sedang dilayani oleh Operator Kami *({$agentName})*.";
+            $claimMessage = $device->getFormattedClaimMessage($agentName, $customerName, $ticketNumber);
 
-        // 3. Kirim pesan notifikasi ke pelanggan via GOWA
-        if ($ticket->device) {
+            // 3. Kirim pesan notifikasi ke pelanggan via GOWA
             $response = $gowa->sendMessage(
-                $ticket->device->gowa_session_id,
+                $device->gowa_session_id,
                 $ticket->number,
                 $claimMessage
             );

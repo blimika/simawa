@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -486,14 +487,44 @@ class GowaService
      */
     public function getUserAvatar(string $deviceId, string $phone, bool $isPreview = true): ?array
     {
+        $cleanPhone = preg_replace('/[^0-9]/', '', $phone);
+        if (empty($cleanPhone)) {
+            return null;
+        }
+
+        $cacheKey = "gowa_avatar_{$deviceId}_{$cleanPhone}_" . ($isPreview ? 'prev' : 'full');
+
+        // Negative caching: jika sebelumnya nomor ini tidak memiliki avatar, jangan tembak GOWA lagi
+        if (Cache::has($cacheKey)) {
+            $cached = Cache::get($cacheKey);
+            if ($cached === 'NO_AVATAR') {
+                return null;
+            }
+            return ['code' => 'SUCCESS', 'results' => ['url' => $cached]];
+        }
+
         try {
             $response = $this->client($deviceId)->get($this->baseUrl . '/user/avatar', [
-                'phone' => $phone,
+                'phone' => $cleanPhone,
                 'is_preview' => $isPreview ? 'true' : 'false',
             ]);
-            return $response->json();
+
+            if ($response->successful()) {
+                $json = $response->json();
+                $url = $json['results']['url'] ?? null;
+                if ($url) {
+                    Cache::put($cacheKey, $url, now()->addHours(6));
+                    return $json;
+                }
+            }
+
+            // Status 404 (AVATAR_NOT_SET) atau 403 (AVATAR_HIDDEN) berarti pengguna tidak memiliki foto profil
+            // Simpan status negative cache (NO_AVATAR) selama 6 jam agar tidak memicu log panic berulang di GOWA
+            Cache::put($cacheKey, 'NO_AVATAR', now()->addHours(6));
+            return null;
         } catch (\Exception $e) {
-            Log::error('GOWA API Error (Get User Avatar): ' . $e->getMessage());
+            Cache::put($cacheKey, 'NO_AVATAR', now()->addMinutes(30));
+            Log::debug('GOWA API Notice (Get User Avatar): ' . $e->getMessage());
             return null;
         }
     }

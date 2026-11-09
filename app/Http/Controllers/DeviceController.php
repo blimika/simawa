@@ -158,6 +158,9 @@ class DeviceController extends Controller
             'greeting_message' => 'nullable|string',
             'claim_message' => 'nullable|string',
             'closing_message' => 'nullable|string',
+            'is_greeting_enabled' => 'nullable|boolean',
+            'is_claim_enabled' => 'nullable|boolean',
+            'is_closing_enabled' => 'nullable|boolean',
         ];
 
         // Validasi tambahan: Jika yang mengedit adalah Super Admin, wajib menyertakan user_id tujuan
@@ -179,6 +182,9 @@ class DeviceController extends Controller
             'greeting_message' => $request->greeting_message,
             'claim_message' => $request->claim_message,
             'closing_message' => $request->closing_message,
+            'is_greeting_enabled' => $request->boolean('is_greeting_enabled'),
+            'is_claim_enabled' => $request->boolean('is_claim_enabled'),
+            'is_closing_enabled' => $request->boolean('is_closing_enabled'),
         ];
         //$updateData['api_key'] = $request->api_key;
         // Jalankan pemindahan kepemilikan jika diset oleh Super Admin
@@ -475,11 +481,15 @@ class DeviceController extends Controller
                     }
 
                     if (empty($device->whatsapp_name) || empty($device->whatsapp_avatar)) {
-                        $profile = $gowa->getConnectedWhatsAppProfile($device->gowa_session_id);
-                        if ($profile) {
-                            if (!empty($profile['name'])) $updateData['whatsapp_name'] = $profile['name'];
-                            if (!empty($profile['avatar'])) $updateData['whatsapp_avatar'] = $profile['avatar'];
-                            if (!empty($profile['phone'])) $updateData['phone_number'] = $profile['phone'];
+                        $profileSyncKey = "device_profile_sync_attempt_{$device->id}";
+                        if (!Cache::has($profileSyncKey)) {
+                            Cache::put($profileSyncKey, true, now()->addMinutes(15));
+                            $profile = $gowa->getConnectedWhatsAppProfile($device->gowa_session_id);
+                            if ($profile) {
+                                if (!empty($profile['name'])) $updateData['whatsapp_name'] = $profile['name'];
+                                if (!empty($profile['avatar'])) $updateData['whatsapp_avatar'] = $profile['avatar'];
+                                if (!empty($profile['phone'])) $updateData['phone_number'] = $profile['phone'];
+                            }
                         }
                     }
 

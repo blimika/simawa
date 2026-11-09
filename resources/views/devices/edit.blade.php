@@ -123,19 +123,31 @@
                         </div>
 
                         <!-- 1. Salam Pembuka -->
-                        <div>
-                            <div class="flex justify-between items-center mb-1">
-                                <label class="block text-xs font-semibold text-gray-700">1. Salam Pembuka (Tiket Baru)</label>
+                        <div class="p-3 bg-white rounded-lg border border-gray-200">
+                            <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-1.5 mb-2">
+                                <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                                    <input type="checkbox" name="is_greeting_enabled" value="1" {{ old('is_greeting_enabled', $device->is_greeting_enabled ?? true) ? 'checked' : '' }} class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500">
+                                    <span class="text-xs font-bold text-gray-800">1. Salam Pembuka (Tiket Baru)</span>
+                                    <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full {{ ($device->is_greeting_enabled ?? true) ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-500' }}">
+                                        {{ ($device->is_greeting_enabled ?? true) ? 'Aktif' : 'Nonaktif' }}
+                                    </span>
+                                </label>
                                 <span class="text-[10px] text-gray-400 font-mono">{nama}, {nomor_tiket}, {device}</span>
                             </div>
-                            <textarea name="greeting_message" rows="4" class="w-full text-xs border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-sans" placeholder="Kosongkan jika ingin menggunakan pesan pembuka bawaan sistem...">{{ old('greeting_message', $device->greeting_message) }}</textarea>
+                            <textarea name="greeting_message" rows="3" class="w-full text-xs border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-sans" placeholder="Kosongkan jika ingin menggunakan pesan pembuka bawaan sistem...">{{ old('greeting_message', $device->greeting_message) }}</textarea>
                             @error('greeting_message') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
                         </div>
 
                         <!-- 2. Pesan Diambil Agen -->
-                        <div>
-                            <div class="flex justify-between items-center mb-1">
-                                <label class="block text-xs font-semibold text-gray-700">2. Pesan Diambil oleh Agen (Klaim Tiket)</label>
+                        <div class="p-3 bg-white rounded-lg border border-gray-200">
+                            <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-1.5 mb-2">
+                                <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                                    <input type="checkbox" name="is_claim_enabled" value="1" {{ old('is_claim_enabled', $device->is_claim_enabled ?? true) ? 'checked' : '' }} class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500">
+                                    <span class="text-xs font-bold text-gray-800">2. Pesan Diambil oleh Agen (Klaim Tiket)</span>
+                                    <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full {{ ($device->is_claim_enabled ?? true) ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-500' }}">
+                                        {{ ($device->is_claim_enabled ?? true) ? 'Aktif' : 'Nonaktif' }}
+                                    </span>
+                                </label>
                                 <span class="text-[10px] text-gray-400 font-mono">{agen}, {nama}, {device}</span>
                             </div>
                             <textarea name="claim_message" rows="2" class="w-full text-xs border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-sans" placeholder="Kosongkan jika ingin menggunakan pesan klaim bawaan sistem...">{{ old('claim_message', $device->claim_message) }}</textarea>
@@ -143,12 +155,18 @@
                         </div>
 
                         <!-- 3. Salam Penutup -->
-                        <div>
-                            <div class="flex justify-between items-center mb-1">
-                                <label class="block text-xs font-semibold text-gray-700">3. Salam Penutup (Tiket Selesai)</label>
+                        <div class="p-3 bg-white rounded-lg border border-gray-200">
+                            <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-1.5 mb-2">
+                                <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+                                    <input type="checkbox" name="is_closing_enabled" value="1" {{ old('is_closing_enabled', $device->is_closing_enabled ?? true) ? 'checked' : '' }} class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500">
+                                    <span class="text-xs font-bold text-gray-800">3. Salam Penutup (Tiket Selesai)</span>
+                                    <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full {{ ($device->is_closing_enabled ?? true) ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-500' }}">
+                                        {{ ($device->is_closing_enabled ?? true) ? 'Aktif' : 'Nonaktif' }}
+                                    </span>
+                                </label>
                                 <span class="text-[10px] text-gray-400 font-mono">{nama}, {nomor_tiket}, {device}, {agen}</span>
                             </div>
-                            <textarea name="closing_message" rows="4" class="w-full text-xs border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-sans" placeholder="Kosongkan jika ingin menggunakan pesan penutup bawaan sistem...">{{ old('closing_message', $device->closing_message) }}</textarea>
+                            <textarea name="closing_message" rows="3" class="w-full text-xs border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-sans" placeholder="Kosongkan jika ingin menggunakan pesan penutup bawaan sistem...">{{ old('closing_message', $device->closing_message) }}</textarea>
                             @error('closing_message') <p class="text-red-500 text-xs mt-1">{{ $message }}</p> @enderror
                         </div>
                     </div>

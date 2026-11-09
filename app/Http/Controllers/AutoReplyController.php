@@ -47,16 +47,22 @@ class AutoReplyController extends Controller
         }
 
         $request->validate([
-            'greeting_message' => ['nullable', 'string'],
-            'claim_message'    => ['nullable', 'string'],
-            'closing_message'   => ['nullable', 'string'],
-            'apply_to_all'     => ['nullable', 'boolean'],
+            'greeting_message'    => ['nullable', 'string'],
+            'claim_message'       => ['nullable', 'string'],
+            'closing_message'     => ['nullable', 'string'],
+            'is_greeting_enabled' => ['nullable', 'boolean'],
+            'is_claim_enabled'    => ['nullable', 'boolean'],
+            'is_closing_enabled'  => ['nullable', 'boolean'],
+            'apply_to_all'        => ['nullable', 'boolean'],
         ]);
 
         $data = [
-            'greeting_message' => $request->greeting_message,
-            'claim_message'    => $request->claim_message,
-            'closing_message'   => $request->closing_message,
+            'greeting_message'    => $request->greeting_message,
+            'claim_message'       => $request->claim_message,
+            'closing_message'     => $request->closing_message,
+            'is_greeting_enabled' => $request->boolean('is_greeting_enabled'),
+            'is_claim_enabled'    => $request->boolean('is_claim_enabled'),
+            'is_closing_enabled'  => $request->boolean('is_closing_enabled'),
         ];
 
         $device->update($data);
@@ -88,19 +94,22 @@ class AutoReplyController extends Controller
         $type = $request->input('type', 'all');
 
         if ($type === 'greeting') {
-            $device->update(['greeting_message' => null]);
-            $msg = 'Salam Pembuka berhasil di-reset ke standar.';
+            $device->update(['greeting_message' => null, 'is_greeting_enabled' => true]);
+            $msg = 'Salam Pembuka berhasil di-reset ke standar sistem.';
         } elseif ($type === 'claim') {
-            $device->update(['claim_message' => null]);
-            $msg = 'Pesan Diambil Agen berhasil di-reset ke standar.';
+            $device->update(['claim_message' => null, 'is_claim_enabled' => true]);
+            $msg = 'Pesan Diambil Agen berhasil di-reset ke standar sistem.';
         } elseif ($type === 'closing') {
-            $device->update(['closing_message' => null]);
-            $msg = 'Salam Penutup berhasil di-reset ke standar.';
+            $device->update(['closing_message' => null, 'is_closing_enabled' => true]);
+            $msg = 'Salam Penutup berhasil di-reset ke standar sistem.';
         } else {
             $device->update([
-                'greeting_message' => null,
-                'claim_message'    => null,
-                'closing_message'   => null,
+                'greeting_message'    => null,
+                'claim_message'       => null,
+                'closing_message'     => null,
+                'is_greeting_enabled' => true,
+                'is_claim_enabled'    => true,
+                'is_closing_enabled'  => true,
             ]);
             $msg = 'Semua pesan otomatis berhasil di-reset ke standar sistem.';
         }

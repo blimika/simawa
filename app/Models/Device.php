@@ -13,6 +13,7 @@ class Device extends Model
     protected $fillable = [
         'name', 'phone_number', 'gowa_session_id', 'status', 'webhook_url', 'user_id', 'is_livechat_enabled', 'api_key',
         'greeting_message', 'claim_message', 'closing_message',
+        'is_greeting_enabled', 'is_claim_enabled', 'is_closing_enabled',
         'whatsapp_name', 'whatsapp_avatar'
     ];
 
@@ -99,10 +100,37 @@ class Device extends Model
         }
         return strtr($text, $map);
     }
-    // Tambahkan baris ini agar selalu dibaca sebagai true/false
+    // Cast atribut agar selalu dibaca sebagai tipe data yang sesuai
     protected $casts = [
         'is_livechat_enabled' => 'boolean',
+        'is_greeting_enabled' => 'boolean',
+        'is_claim_enabled'    => 'boolean',
+        'is_closing_enabled'  => 'boolean',
     ];
+
+    /**
+     * Cek apakah Salam Pembuka aktif dan Live Chat aktif
+     */
+    public function isGreetingEnabled(): bool
+    {
+        return $this->is_livechat_enabled && ($this->is_greeting_enabled ?? true);
+    }
+
+    /**
+     * Cek apakah Pesan Diambil Agen aktif dan Live Chat aktif
+     */
+    public function isClaimEnabled(): bool
+    {
+        return $this->is_livechat_enabled && ($this->is_claim_enabled ?? true);
+    }
+
+    /**
+     * Cek apakah Salam Penutup aktif dan Live Chat aktif
+     */
+    public function isClosingEnabled(): bool
+    {
+        return $this->is_livechat_enabled && ($this->is_closing_enabled ?? true);
+    }
     // Admin pemilik device ini
     public function owner()
     {
