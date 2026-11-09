@@ -28,6 +28,8 @@ Route::middleware(['auth', 'active.user'])->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
+    Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');
+    Route::get('/reports/agent/{agent}', [ReportController::class, 'agentDetail'])->name('reports.agent-detail');
 
     // ==========================================
     // AREA KHUSUS ADMIN
@@ -122,6 +124,8 @@ Route::middleware(['auth', 'active.user'])->group(function () {
         Route::delete('broadcast/{campaign}', [BroadcastController::class, 'destroy'])->name('broadcast.destroy');
 
         Route::get('/webhook-logs', [WebhookController::class, 'index'])->name('webhook-logs.index');
+        Route::get('/webhook-logs/{webhookLog}', [WebhookController::class, 'show'])->name('webhook-logs.show');
+        Route::delete('/webhook-logs/{webhookLog}', [WebhookController::class, 'destroy'])->name('webhook-logs.destroy');
         Route::post('/webhook-logs/clear', [WebhookController::class, 'clear'])->name('webhook-logs.clear');
     });
 });

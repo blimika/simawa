@@ -38,7 +38,7 @@
                         <x-nav-link :href="route('auto-replies.index')" :active="request()->routeIs('auto-replies.*')">
                             {{ __('Pesan Otomatis') }}
                         </x-nav-link>
-                        <x-nav-link :href="route('reports.index')" :active="request()->routeIs('reports.index')">
+                        <x-nav-link :href="route('reports.index')" :active="request()->routeIs('reports.*')">
                             {{ __('Laporan') }}
                         </x-nav-link>
                         <x-nav-link :href="route('api-docs.index')" :active="request()->routeIs('api-docs.*')">
@@ -49,8 +49,8 @@
                     <x-nav-link :href="route('phonebook.index')" :active="request()->routeIs('phonebook.*')">
                         {{ __('Buku Telepon') }}
                     </x-nav-link>
-                    <x-nav-link :href="route('webhook-logs.index')" :active="request()->routeIs('webhook-logs.index')">
-                        {{ __('Logs') }}
+                    <x-nav-link :href="route('webhook-logs.index')" :active="request()->routeIs('webhook-logs.*')">
+                        {{ __('Webhook Logs') }}
                     </x-nav-link>
                 </div>
             </div>
@@ -127,6 +127,9 @@
                 <x-responsive-nav-link :href="route('auto-replies.index')" :active="request()->routeIs('auto-replies.*')">
                     {{ __('Pesan Otomatis') }}
                 </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('reports.index')" :active="request()->routeIs('reports.*')">
+                    {{ __('Laporan') }}
+                </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('api-docs.index')" :active="request()->routeIs('api-docs.*')">
                     {{ __('API Docs') }}
                 </x-responsive-nav-link>
@@ -135,8 +138,8 @@
             <x-responsive-nav-link :href="route('phonebook.index')" :active="request()->routeIs('phonebook.*')">
                 {{ __('Buku Telepon') }}
             </x-responsive-nav-link>
-            <x-responsive-nav-link :href="route('webhook-logs.index')" :active="request()->routeIs('webhook-logs.index')">
-                {{ __('Logs') }}
+            <x-responsive-nav-link :href="route('webhook-logs.index')" :active="request()->routeIs('webhook-logs.*')">
+                {{ __('Webhook Logs') }}
             </x-responsive-nav-link>
         </div>
 

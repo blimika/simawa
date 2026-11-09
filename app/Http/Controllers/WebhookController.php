@@ -57,11 +57,27 @@ class WebhookController extends Controller
                 $device->update(['status' => 'disconnected']);
                 \Log::warning("Webhook GOWA: Device [{$device->name}] diputus dari WhatsApp: " . data_get($data, 'payload.reason', 'Logged out'));
             }
+            if ($device) {
+                WebhookLog::create([
+                    'device_id' => $device->id,
+                    'sender_number' => 'SYSTEM',
+                    'message' => '[Device Logged Out] ' . data_get($data, 'payload.reason', 'Terputus dari WhatsApp'),
+                    'payload' => json_encode($data)
+                ]);
+            }
             return response()->json(['status' => 'success', 'message' => 'Device logged out handled']);
         }
 
         // 1. Abaikan jika ini bukan event pesan masuk
         if ($event !== 'message') {
+            if ($device) {
+                WebhookLog::create([
+                    'device_id' => $device->id,
+                    'sender_number' => 'SYSTEM',
+                    'message' => "[Event: {$event}]",
+                    'payload' => json_encode($data)
+                ]);
+            }
             return response()->json(['status' => 'ignored', 'reason' => 'Bukan event message']);
         }
 
@@ -289,16 +305,187 @@ class WebhookController extends Controller
         return response()->json(['status' => 'success', 'message' => 'Proses SIMAWA dan Forwarding selesai']);
     }
 
-    public function index()
+    /**
+     * Tampilkan Riwayat Webhook dengan Filter, Pencarian, & Statistik
+     */
+    public function index(Request $request)
     {
-        // Ambil data terbaru, batasi 50 per halaman
-        $logs = WebhookLog::latest()->paginate(50);
-        return view('webhook_logs.index', compact('logs'));
+        $user = auth()->user();
+
+        // 1. Ambil daftar device yang berhak diakses oleh pengguna
+        $devicesQuery = Device::query();
+        if ($user->isSuperadmin()) {
+            // Superadmin dapat melihat seluruh device
+        } elseif ($user->isAdmin()) {
+            $devicesQuery->where('user_id', $user->id);
+        } else {
+            // Agen melihat device milik admin/parent atau handledDevices
+            $handled = $user->handledDevices()->pluck('devices.id');
+            if ($handled->isNotEmpty()) {
+                $devicesQuery->whereIn('id', $handled);
+            } else {
+                $devicesQuery->where('user_id', $user->parent_id);
+            }
+        }
+        $devices = $devicesQuery->orderBy('name', 'asc')->get();
+        $allowedDeviceIds = $devices->pluck('id')->toArray();
+
+        // 2. Siapkan Query WebhookLog dengan Eager Loading
+        $query = WebhookLog::with('device');
+
+        if (!$user->isSuperadmin()) {
+            $query->whereIn('device_id', $allowedDeviceIds);
+        }
+
+        // Filter Spesifik Device
+        if ($request->filled('device_id')) {
+            $query->where('device_id', $request->device_id);
+        }
+
+        // Filter Event GOWA (message, device.logged_out, dll)
+        if ($request->filled('event')) {
+            $eventFilter = $request->event;
+            if ($eventFilter === 'message') {
+                $query->where(function ($q) {
+                    $q->where('payload', 'like', '%"event":"message"%')
+                      ->orWhere('payload', 'like', '%"event": "message"%')
+                      ->orWhereNull('payload->event');
+                });
+            } elseif ($eventFilter === 'device.logged_out') {
+                $query->where(function ($q) {
+                    $q->where('payload', 'like', '%"event":"device.logged_out"%')
+                      ->orWhere('payload', 'like', '%"event": "device.logged_out"%');
+                });
+            } else {
+                $query->where('payload', 'like', '%"event":"' . $eventFilter . '"%')
+                      ->orWhere('payload', 'like', '%"event": "' . $eventFilter . '"%');
+            }
+        }
+
+        // Filter Rentang Tanggal
+        if ($request->filled('date_range')) {
+            switch ($request->date_range) {
+                case 'today':
+                    $query->whereDate('created_at', today());
+                    break;
+                case '7days':
+                    $query->where('created_at', '>=', now()->subDays(7));
+                    break;
+                case '30days':
+                    $query->where('created_at', '>=', now()->subDays(30));
+                    break;
+            }
+        }
+
+        // Pencarian Teks (Nomor pengirim, isi pesan, atau isi payload)
+        if ($request->filled('search')) {
+            $search = trim($request->search);
+            $query->where(function ($q) use ($search) {
+                $q->where('sender_number', 'like', "%{$search}%")
+                  ->orWhere('message', 'like', "%{$search}%")
+                  ->orWhere('payload', 'like', "%{$search}%");
+            });
+        }
+
+        // 3. Statistik Ringkasan untuk Card Widget
+        $baseStatQuery = WebhookLog::query();
+        if (!$user->isSuperadmin()) {
+            $baseStatQuery->whereIn('device_id', $allowedDeviceIds);
+        }
+        if ($request->filled('device_id')) {
+            $baseStatQuery->where('device_id', $request->device_id);
+        }
+
+        $stats = [
+            'total' => (clone $baseStatQuery)->count(),
+            'today' => (clone $baseStatQuery)->whereDate('created_at', today())->count(),
+            'messages' => (clone $baseStatQuery)->where(function ($q) {
+                $q->where('payload', 'like', '%"event":"message"%')
+                  ->orWhere('payload', 'like', '%"event": "message"%')
+                  ->orWhereNull('payload->event');
+            })->count(),
+            'events' => (clone $baseStatQuery)->where(function ($q) {
+                $q->where('payload', 'like', '%"event":"device.logged_out"%')
+                  ->orWhere('payload', 'like', '%"event": "device.logged_out"%');
+            })->count(),
+        ];
+
+        // Ambil data dengan pagination 25 baris & simpan query string
+        $logs = $query->latest()->paginate(25)->withQueryString();
+
+        return view('webhook_logs.index', compact('logs', 'devices', 'stats'));
     }
 
-    public function clear()
+    /**
+     * Dapatkan Detail JSON Payload Sebuah Log
+     */
+    public function show(WebhookLog $webhookLog)
     {
-        WebhookLog::truncate();
-        return back()->with('success', 'Semua riwayat Webhook berhasil dibersihkan.');
+        $webhookLog->load('device');
+
+        return response()->json([
+            'id' => $webhookLog->id,
+            'device_id' => $webhookLog->device_id,
+            'device_name' => $webhookLog->device?->name ?? 'Device #'.$webhookLog->device_id,
+            'device_phone' => $webhookLog->device?->phone_number,
+            'session_id' => $webhookLog->session_id,
+            'event' => $webhookLog->event,
+            'sender_number' => $webhookLog->sender_number,
+            'sender_name' => $webhookLog->sender_display_name,
+            'message' => $webhookLog->message,
+            'media_type' => $webhookLog->media_type,
+            'media_info' => $webhookLog->media_info,
+            'created_at' => $webhookLog->created_at->format('d M Y H:i:s'),
+            'created_at_relative' => $webhookLog->created_at->diffForHumans(),
+            'payload' => $webhookLog->payload_data,
+        ]);
+    }
+
+    /**
+     * Hapus Satu Baris Riwayat Webhook Tertentu
+     */
+    public function destroy(WebhookLog $webhookLog)
+    {
+        $user = auth()->user();
+        if (!$user->isSuperadmin()) {
+            $ownerId = $user->getOwnerId();
+            if ($webhookLog->device && $webhookLog->device->user_id !== $ownerId) {
+                abort(403, 'Anda tidak memiliki hak untuk menghapus riwayat webhook ini.');
+            }
+        }
+
+        $webhookLog->delete();
+
+        return back()->with('success', 'Riwayat Webhook berhasil dihapus.');
+    }
+
+    /**
+     * Bersihkan Seluruh Riwayat Webhook (atau Filter Device)
+     */
+    public function clear(Request $request)
+    {
+        $user = auth()->user();
+
+        // Jika superadmin dan tidak ada filter device_id -> truncate penuh
+        if ($user->isSuperadmin() && !$request->filled('device_id')) {
+            WebhookLog::truncate();
+            return back()->with('success', 'Semua riwayat Webhook berhasil dibersihkan.');
+        }
+
+        $query = WebhookLog::query();
+        if (!$user->isSuperadmin()) {
+            $ownerId = $user->getOwnerId();
+            $allowedDeviceIds = Device::where('user_id', $ownerId)->pluck('id');
+            $query->whereIn('device_id', $allowedDeviceIds);
+        }
+
+        if ($request->filled('device_id')) {
+            $query->where('device_id', $request->device_id);
+        }
+
+        $count = $query->count();
+        $query->delete();
+
+        return back()->with('success', "{$count} riwayat Webhook berhasil dibersihkan.");
     }
 }
