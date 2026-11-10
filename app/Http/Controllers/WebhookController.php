@@ -112,6 +112,7 @@ class WebhookController extends Controller
 
         // Ekstrak Media: Image, Document, Video, Audio, Sticker (GOWA v9)
         $mediaPath = null;
+        $originalDocName = null;
         $mediaItems = [
             'image'    => data_get($payload, 'image'),
             'document' => data_get($payload, 'document'),
@@ -124,10 +125,21 @@ class WebhookController extends Controller
             if (empty($mediaData)) continue;
             if (is_array($mediaData)) {
                 $mediaPath = $mediaData['path'] ?? $mediaData['url'] ?? null;
+                $originalDocName = $mediaData['file_name'] ?? $mediaData['filename'] ?? null;
             } elseif (is_string($mediaData)) {
                 $mediaPath = $mediaData;
+                $originalDocName = basename($mediaData);
             }
             if (!empty($mediaPath)) break;
+        }
+
+        // Tangkap teks caption jika body kosong pada pesan media
+        if (empty($text)) {
+            $text = data_get($payload, 'caption') 
+                ?: data_get($payload, 'image.caption') 
+                ?: data_get($payload, 'document.caption') 
+                ?: data_get($payload, 'video.caption') 
+                ?: '';
         }
 
         // 3. Simpan ke tabel webhook_logs
@@ -180,8 +192,24 @@ class WebhookController extends Controller
                         }
 
                         if ($response->successful()) {
-                            $extension = pathinfo(parse_url($cleanPath, PHP_URL_PATH), PATHINFO_EXTENSION) ?: 'bin';
-                            $filename = 'media_' . time() . '_' . Str::random(5) . '.' . strtolower($extension);
+                            $cleanPathOnly = parse_url($cleanPath, PHP_URL_PATH);
+                            $extension = pathinfo($cleanPathOnly, PATHINFO_EXTENSION);
+                            if (empty($extension) && $originalDocName) {
+                                $extension = pathinfo($originalDocName, PATHINFO_EXTENSION);
+                            }
+                            if (empty($extension)) {
+                                $extension = 'bin';
+                            }
+
+                            $safeDocName = '';
+                            if ($originalDocName) {
+                                $base = Str::slug(pathinfo($originalDocName, PATHINFO_FILENAME));
+                                if ($base) {
+                                    $safeDocName = '_' . substr($base, 0, 30);
+                                }
+                            }
+
+                            $filename = 'media_' . time() . '_' . Str::random(5) . $safeDocName . '.' . strtolower($extension);
 
                             Storage::disk('public')->put('received_media/' . $filename, $response->body());
                             $finalMediaUrl = 'received_media/' . $filename;

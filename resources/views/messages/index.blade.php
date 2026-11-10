@@ -9,134 +9,163 @@
             'rekrutmen' => 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-300',
             'konsultasi' => 'bg-emerald-100 text-emerald-700 border-emerald-300',
         ];
+        $currentTab = $currentTab ?? request('tab', 'all');
+        $counts = $counts ?? ['all' => 0, 'antrean' => 0, 'diproses' => 0, 'selesai' => 0];
     @endphp
 
-    <x-slot name="header">
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div>
-                <h2 class="font-bold text-2xl text-gray-800 leading-tight">
-                    {{ __('Live Chat') }}
-                </h2>
-                <p class="text-sm text-gray-500 mt-1">
-                    Layanan ruang obrolan langsung WhatsApp dengan antrean tiket dan manajemen agen.
-                </p>
-            </div>
-            <button onclick="document.getElementById('newMessageModal').classList.remove('hidden')" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-4 rounded-xl text-sm transition duration-150 shadow-sm flex items-center gap-2">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-                + Pesan Baru
-            </button>
-        </div>
-    </x-slot>
+    {{-- KONTEN UTAMA: 1 HALAMAN PAS (FULL VIEWPORT FIT, TANPA SCROLLBAR HALAMAN) --}}
+    <div class="h-[calc(100vh-64px)] max-h-[calc(100vh-64px)] overflow-hidden bg-gray-100 p-2 sm:p-3 flex flex-col">
+        <div class="flex-1 bg-white rounded-2xl shadow-sm border border-gray-200/80 overflow-hidden flex h-full">
 
-    <div class="py-6 sm:py-8 bg-gray-50 min-h-screen">
-        <div class="w-full px-4 sm:px-6 lg:px-8">
-            <div class="bg-white overflow-hidden shadow-sm rounded-2xl border border-gray-200">
+            {{-- ======================================================== --}}
+            {{-- SIDEBAR KIRI: ANTREAN PERCAKAPAN & TIKET                 --}}
+            {{-- ======================================================== --}}
+            <div class="w-full sm:w-80 md:w-96 lg:w-[380px] xl:w-[410px] shrink-0 bg-white border-r border-gray-200/80 flex flex-col h-full">
 
-                <div class="h-[calc(100vh-210px)] min-h-[580px] flex overflow-hidden bg-white">
-
-                    {{-- ======================================================== --}}
-                    {{-- SIDEBAR KIRI: ANTREAN PERCAKAPAN & TIKET                 --}}
-                    {{-- ======================================================== --}}
-                    <div class="w-full sm:w-80 md:w-96 lg:w-[380px] xl:w-[420px] shrink-0 bg-gray-50 border-r border-gray-200 flex flex-col">
-
-                        {{-- Header Sidebar & Pencarian --}}
-                        <div class="p-4 border-b border-gray-200 bg-white shadow-xs z-10 flex flex-col gap-3">
-                            <div class="flex items-center justify-between">
-                                <div>
-                                    <h2 class="text-base font-bold text-gray-900 flex items-center gap-2">
-                                        <span>Antrean Pesan</span>
-                                        <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-bold border border-indigo-200">
-                                            {{ $tickets->count() }}
-                                        </span>
-                                    </h2>
-                                    <p class="text-[11px] text-gray-400">Pilih pesan untuk melayani pelanggan</p>
-                                </div>
+                {{-- Header Sidebar & Pencarian & Filter Tabs --}}
+                <div class="p-3.5 border-b border-gray-200/80 bg-white shadow-xs z-10 flex flex-col gap-2.5 shrink-0">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
                             </div>
-
-                            <form action="{{ route('messages.index') }}" method="GET" class="relative">
-                                @if(request('ticket_id'))
-                                    <input type="hidden" name="ticket_id" value="{{ request('ticket_id') }}">
-                                @endif
-
-                                <input type="text" name="search" value="{{ request('search') }}" placeholder="Cari nama, nomor, atau tiket..." class="w-full text-xs border-gray-300 rounded-xl shadow-xs focus:ring-indigo-500 focus:border-indigo-500 pl-9 py-2 transition-all">
-                                <svg class="w-4 h-4 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-
-                                @if(request('search'))
-                                    <a href="{{ route('messages.index', request('ticket_id') ? ['ticket_id' => request('ticket_id')] : []) }}" class="absolute right-3 top-2.5 text-gray-400 hover:text-red-500">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                                    </a>
-                                @endif
-                            </form>
+                            <div>
+                                <h1 class="text-base font-bold text-gray-900 leading-tight">Live Chat</h1>
+                                <p class="text-[11px] text-gray-400">WhatsApp Pelayanan</p>
+                            </div>
                         </div>
+                        <button onclick="document.getElementById('newMessageModal').classList.remove('hidden')" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-1.5 px-3 rounded-xl text-xs transition duration-150 shadow-xs flex items-center gap-1.5">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                            <span>+ Pesan Baru</span>
+                        </button>
+                    </div>
 
-                        @if(session('error'))
-                            <div class="bg-red-100 text-red-700 text-xs px-4 py-2 border-b border-red-200">{{ session('error') }}</div>
+                    {{-- Form Pencarian --}}
+                    <form action="{{ route('messages.index') }}" method="GET" class="relative">
+                        @if(request('ticket_id'))
+                            <input type="hidden" name="ticket_id" value="{{ request('ticket_id') }}">
                         @endif
-                        @if(session('success'))
-                            <div class="bg-green-100 text-green-700 text-xs px-4 py-2 border-b border-green-200">{{ session('success') }}</div>
+                        <input type="hidden" name="tab" value="{{ $currentTab }}">
+
+                        <input type="text" name="search" value="{{ request('search') }}" placeholder="Cari nama, nomor, atau tiket..." class="w-full text-xs border-gray-300 rounded-xl shadow-xs focus:ring-indigo-500 focus:border-indigo-500 pl-8 pr-7 py-2 transition-all">
+                        <svg class="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+
+                        @if(request('search'))
+                            <a href="{{ route('messages.index', array_filter(['ticket_id' => request('ticket_id'), 'tab' => $currentTab])) }}" class="absolute right-2.5 top-2.5 text-gray-400 hover:text-red-500" title="Hapus pencarian">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </a>
                         @endif
+                    </form>
 
-                        {{-- Daftar Tiket di Sidebar --}}
-                        <div class="flex-1 overflow-y-auto divide-y divide-gray-100" id="sidebar-list">
-                            @forelse($tickets as $t)
-                                @php
-                                    $contact = $contacts->firstWhere('number', $t->number);
-                                    $displayName = $contact ? $contact->name : ($t->customer_name ?: 'Pelanggan Baru');
-                                    $avatarUrl = $t->avatar_url ?: ($contact->avatar_url ?? null);
+                    {{-- Tombol Filter Status: Semua, Antrean, Diproses, Selesai --}}
+                    <div id="sidebar-tabs" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar text-xs pt-0.5">
+                        <a href="{{ route('messages.index', array_filter(['tab' => 'all', 'search' => request('search'), 'ticket_id' => request('ticket_id')])) }}" 
+                           class="px-2.5 py-1 rounded-lg font-semibold transition flex items-center gap-1 shrink-0 {{ $currentTab === 'all' ? 'bg-gray-900 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
+                            <span>Semua</span>
+                            <span class="text-[10px] px-1.5 py-0.2 rounded-full font-bold {{ $currentTab === 'all' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-700' }}">
+                                {{ $counts['all'] }}
+                            </span>
+                        </a>
 
-                                    $currentTag = strtolower($t->tag ?? 'umum');
-                                    $tagClass = $tagColors[$currentTag] ?? $tagColors['umum'];
-                                @endphp
+                        <a href="{{ route('messages.index', array_filter(['tab' => 'antrean', 'search' => request('search'), 'ticket_id' => request('ticket_id')])) }}" 
+                           class="px-2.5 py-1 rounded-lg font-semibold transition flex items-center gap-1 shrink-0 {{ $currentTab === 'antrean' ? 'bg-rose-600 text-white shadow-xs' : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200' }}">
+                            <span>Antrean</span>
+                            <span class="text-[10px] px-1.5 py-0.2 rounded-full font-bold {{ $currentTab === 'antrean' ? 'bg-white/20 text-white' : 'bg-rose-200 text-rose-800' }}">
+                                {{ $counts['antrean'] }}
+                            </span>
+                        </a>
 
-                                <a href="{{ route('messages.index', ['ticket_id' => $t->id, 'search' => request('search')]) }}" class="block p-3.5 hover:bg-gray-100/80 transition {{ request('ticket_id') == $t->id ? 'bg-indigo-50/70 border-l-4 border-indigo-500 shadow-xs' : '' }} {{ $t->status === 'closed' ? 'opacity-70 bg-gray-50/60' : '' }}">
-                                    <div class="flex items-start gap-3">
-                                        {{-- Avatar Kontak di Sidebar --}}
-                                        <div class="relative shrink-0 mt-0.5">
-                                            @if(!empty($avatarUrl))
-                                                <img src="{{ $avatarUrl }}" 
-                                                     alt="{{ $displayName }}" 
-                                                     class="w-11 h-11 rounded-full object-cover border border-gray-200 shadow-xs" 
-                                                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                                                <div class="w-11 h-11 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs uppercase items-center justify-center border border-emerald-200 shadow-xs" style="display: none;">
-                                                    {{ strtoupper(substr($displayName, 0, 2)) }}
-                                                </div>
-                                            @else
-                                                <div class="w-11 h-11 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs uppercase border border-emerald-200 shadow-xs">
-                                                    {{ strtoupper(substr($displayName, 0, 2)) }}
-                                                </div>
+                        <a href="{{ route('messages.index', array_filter(['tab' => 'diproses', 'search' => request('search'), 'ticket_id' => request('ticket_id')])) }}" 
+                           class="px-2.5 py-1 rounded-lg font-semibold transition flex items-center gap-1 shrink-0 {{ $currentTab === 'diproses' ? 'bg-blue-600 text-white shadow-xs' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200' }}">
+                            <span>Diproses</span>
+                            <span class="text-[10px] px-1.5 py-0.2 rounded-full font-bold {{ $currentTab === 'diproses' ? 'bg-white/20 text-white' : 'bg-blue-200 text-blue-800' }}">
+                                {{ $counts['diproses'] }}
+                            </span>
+                        </a>
+
+                        <a href="{{ route('messages.index', array_filter(['tab' => 'selesai', 'search' => request('search'), 'ticket_id' => request('ticket_id')])) }}" 
+                           class="px-2.5 py-1 rounded-lg font-semibold transition flex items-center gap-1 shrink-0 {{ $currentTab === 'selesai' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200' }}">
+                            <span>Selesai</span>
+                            <span class="text-[10px] px-1.5 py-0.2 rounded-full font-bold {{ $currentTab === 'selesai' ? 'bg-white/20 text-white' : 'bg-emerald-200 text-emerald-800' }}">
+                                {{ $counts['selesai'] }}
+                            </span>
+                        </a>
+                    </div>
+                </div>
+
+                @if(session('error'))
+                    <div class="bg-red-100 text-red-700 text-xs px-4 py-2 border-b border-red-200 shrink-0">{{ session('error') }}</div>
+                @endif
+                @if(session('success'))
+                    <div class="bg-green-100 text-green-700 text-xs px-4 py-2 border-b border-green-200 shrink-0">{{ session('success') }}</div>
+                @endif
+
+                {{-- Daftar Tiket di Sidebar --}}
+                <div class="flex-1 overflow-y-auto divide-y divide-gray-100" id="sidebar-list">
+                    @forelse($tickets as $t)
+                        @php
+                            $contact = $contacts->firstWhere('number', $t->number);
+                            $displayName = $contact ? $contact->name : ($t->customer_name ?: 'Pelanggan Baru');
+                            $avatarUrl = $t->avatar_url ?: ($contact->avatar_url ?? null);
+
+                            $currentTag = strtolower($t->tag ?? 'umum');
+                            $tagClass = $tagColors[$currentTag] ?? $tagColors['umum'];
+                        @endphp
+
+                        <a href="{{ route('messages.index', array_filter(['ticket_id' => $t->id, 'tab' => $currentTab, 'search' => request('search')])) }}" 
+                           class="block p-3.5 hover:bg-gray-100/80 transition {{ request('ticket_id') == $t->id ? 'bg-indigo-50/70 border-l-4 border-indigo-500 shadow-xs' : '' }} {{ $t->status === 'closed' ? 'bg-emerald-50/20' : '' }}">
+                            <div class="flex items-start gap-3">
+                                {{-- Avatar Kontak di Sidebar --}}
+                                <div class="relative shrink-0 mt-0.5">
+                                    @if(!empty($avatarUrl))
+                                        <img src="{{ $avatarUrl }}" 
+                                             alt="{{ $displayName }}" 
+                                             class="w-11 h-11 rounded-full object-cover border border-gray-200 shadow-xs" 
+                                             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                                        <div class="w-11 h-11 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs uppercase items-center justify-center border border-emerald-200 shadow-xs" style="display: none;">
+                                            {{ strtoupper(substr($displayName, 0, 2)) }}
+                                        </div>
+                                    @else
+                                        <div class="w-11 h-11 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs uppercase border border-emerald-200 shadow-xs">
+                                            {{ strtoupper(substr($displayName, 0, 2)) }}
+                                        </div>
+                                    @endif
+
+                                    {{-- Indikator Pesan Baru --}}
+                                    @if($t->has_new_message)
+                                        <span class="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-indigo-600 border-2 border-white rounded-full animate-ping"></span>
+                                        <span class="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-indigo-600 border-2 border-white rounded-full"></span>
+                                    @endif
+                                </div>
+
+                                {{-- Detail Info Tiket --}}
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex justify-between items-start mb-0.5">
+                                        <span class="font-bold text-sm truncate {{ $t->has_new_message ? 'text-indigo-950 font-black' : 'text-gray-900' }} flex items-center gap-1">
+                                            <span class="truncate">{{ $displayName }}</span>
+                                            @if($contact)
+                                                <span class="bg-emerald-100 text-emerald-700 text-[8px] uppercase px-1 py-0.2 rounded font-bold shrink-0" title="Tersimpan di Buku Telepon">Kontak</span>
+                                            @endif
+                                        </span>
+
+                                        <div class="flex gap-1 items-center shrink-0 ml-1">
+                                            @if($t->has_new_message)
+                                                <span class="bg-indigo-600 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-full shadow-xs">BARU</span>
                                             @endif
 
-                                            {{-- Indikator Pesan Baru --}}
-                                            @if($t->has_new_message)
-                                                <span class="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-blue-600 border-2 border-white rounded-full animate-ping"></span>
-                                                <span class="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-blue-600 border-2 border-white rounded-full"></span>
+                                            {{-- Label Status Tiket: Selesai (HIJAU!), Antrean, Diproses --}}
+                                            @if($t->status === 'closed')
+                                                <span class="bg-emerald-100 text-emerald-700 border border-emerald-300 text-[9px] font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5 shadow-xs">
+                                                    <svg class="w-2.5 h-2.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                                                    Selesai
+                                                </span>
+                                            @elseif(is_null($t->agent_id))
+                                                <span class="bg-rose-100 text-rose-700 border border-rose-300 text-[9px] font-bold px-2 py-0.5 rounded-full shadow-xs">Antrean</span>
+                                            @else
+                                                <span class="bg-blue-100 text-blue-700 border border-blue-300 text-[9px] font-bold px-2 py-0.5 rounded-full shadow-xs">Diproses</span>
                                             @endif
                                         </div>
-
-                                        {{-- Detail Info Tiket --}}
-                                        <div class="flex-1 min-w-0">
-                                            <div class="flex justify-between items-start mb-0.5">
-                                                <span class="font-bold text-sm truncate {{ $t->has_new_message ? 'text-indigo-950 font-black' : 'text-gray-900' }} flex items-center gap-1">
-                                                    <span class="truncate">{{ $displayName }}</span>
-                                                    @if($contact)
-                                                        <span class="bg-emerald-100 text-emerald-700 text-[8px] uppercase px-1 py-0.2 rounded font-bold shrink-0" title="Tersimpan di Buku Telepon">Kontak</span>
-                                                    @endif
-                                                </span>
-
-                                                <div class="flex gap-1 items-center shrink-0 ml-1">
-                                                    @if($t->has_new_message)
-                                                        <span class="bg-blue-600 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-full shadow-xs">BARU</span>
-                                                    @endif
-
-                                                    @if($t->status === 'closed')
-                                                        <span class="bg-gray-200 text-gray-600 text-[9px] font-bold px-1.5 py-0.5 rounded-full">Selesai</span>
-                                                    @elseif(is_null($t->agent_id))
-                                                        <span class="bg-rose-100 text-rose-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full">Antrean</span>
-                                                    @else
-                                                        <span class="bg-amber-100 text-amber-800 text-[9px] font-bold px-1.5 py-0.5 rounded-full">Diproses</span>
-                                                    @endif
-                                                </div>
-                                            </div>
+                                    </div>
 
                                             <div class="flex items-center justify-between text-xs text-gray-500 font-mono">
                                                 <span class="truncate">+{{ $t->number }}</span>
@@ -313,8 +342,9 @@
                                             </form>
                                         @endif
                                     @else
-                                        <span class="bg-gray-100 text-gray-500 border border-gray-300 text-xs font-semibold px-3 py-1.5 rounded-full shadow-inner">
-                                            🔒 Tiket Selesai
+                                        <span class="bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold px-3 py-1.5 rounded-full shadow-xs flex items-center gap-1.5">
+                                            <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+                                            Tiket Selesai
                                         </span>
                                     @endif
                                 </div>
@@ -364,32 +394,63 @@
                                                             $fullMediaUrl = $msg->media_url;
                                                             $cleanPath = parse_url($msg->media_url, PHP_URL_PATH);
                                                         } else {
-                                                            $gowaBaseUrl = env('GOWA_API_URL', 'http://localhost:5271');
+                                                            $gowaBaseUrl = config('services.gowa.url', env('GOWA_API_URL', 'http://localhost:5271'));
                                                             $cleanPath = str_replace('\\', '/', $msg->media_url);
                                                             $fullMediaUrl = rtrim($gowaBaseUrl, '/') . '/' . ltrim($cleanPath, '/');
                                                         }
                                                         $extension = strtolower(pathinfo($cleanPath, PATHINFO_EXTENSION));
                                                     }
 
-                                                    $imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'jfif'];
+                                                    $imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'jfif', 'svg', 'bmp'];
                                                     $isImage = in_array($extension, $imageExtensions);
+                                                    $downloadUrl = route('messages.media.download', $msg->id);
+                                                    $viewUrl = route('messages.media.view', $msg->id);
                                                 @endphp
 
                                                 <div class="mb-2">
                                                     @if($isImage)
-                                                        <a href="javascript:void(0)" onclick="openImageModal('{{ $fullMediaUrl }}')" title="Klik untuk memperbesar gambar">
-                                                            <img src="{{ $fullMediaUrl }}" class="rounded-xl max-h-64 object-cover cursor-pointer hover:opacity-90 transition border border-gray-200 shadow-xs" alt="Gambar Lampiran" onerror="this.onerror=null; this.src='https://placehold.co/300x200?text=Gambar+Gagal+Dimuat';">
-                                                        </a>
+                                                        <div class="relative group/img inline-block max-w-full">
+                                                            <a href="javascript:void(0)" onclick="openImageModal('{{ $fullMediaUrl }}', '{{ $downloadUrl }}')" title="Klik untuk memperbesar gambar">
+                                                                <img src="{{ $fullMediaUrl }}" 
+                                                                     class="rounded-xl max-h-64 object-cover cursor-pointer hover:opacity-95 transition border border-gray-200 shadow-xs" 
+                                                                     alt="Gambar Lampiran" 
+                                                                     onerror="if (!this.dataset.retried) { this.dataset.retried = '1'; this.src='{{ $viewUrl }}'; } else { this.onerror=null; this.src='https://placehold.co/300x200?text=Gambar+Gagal+Dimuat'; }">
+                                                            </a>
+                                                            <div class="mt-1 flex items-center justify-between gap-2">
+                                                                <a href="{{ $downloadUrl }}" class="inline-flex items-center gap-1 text-[11px] font-medium text-gray-600 hover:text-indigo-600 transition bg-black/5 hover:bg-black/10 px-2.5 py-1 rounded-md" title="Simpan gambar ke lokal">
+                                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                                                    <span>Unduh Gambar</span>
+                                                                </a>
+                                                                <span class="text-[10px] text-gray-400 uppercase font-mono">{{ $extension }}</span>
+                                                            </div>
+                                                        </div>
                                                     @else
-                                                        <a href="{{ $fullMediaUrl }}" target="_blank" class="flex items-center gap-3 p-3 bg-black bg-opacity-5 hover:bg-opacity-10 transition rounded-xl border border-gray-200 max-w-xs">
-                                                            <div class="bg-indigo-500 text-white p-2 rounded-lg flex-shrink-0">
-                                                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                                                        <div class="flex items-center justify-between gap-3 p-3 bg-black bg-opacity-5 hover:bg-opacity-10 transition rounded-xl border border-gray-200 max-w-sm">
+                                                            <div class="flex items-center gap-3 overflow-hidden">
+                                                                <div class="p-2.5 rounded-lg flex-shrink-0 shadow-xs {{ $extension === 'pdf' ? 'bg-rose-500 text-white' : 'bg-indigo-500 text-white' }}">
+                                                                    @if($extension === 'pdf')
+                                                                        <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9.5 8.5h-1v-2h1c.55 0 1 .45 1 1s-.45 1-1 1zm5.5 2h-1.5v-1h1.5c.28 0 .5-.22.5-.5s-.22-.5-.5-.5H15v-1h1.5c.55 0 1 .45 1 1v1c0 .55-.45 1-1 1zm-3-1c0 .55-.45 1-1 1h-1.5v-4H11c.55 0 1 .45 1 1v2z"/></svg>
+                                                                    @else
+                                                                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                                                                    @endif
+                                                                </div>
+                                                                <div class="flex flex-col overflow-hidden text-left">
+                                                                    <span class="text-xs font-semibold text-gray-800 truncate" title="{{ basename($msg->media_url) }}">
+                                                                        {{ basename($msg->media_url) }}
+                                                                    </span>
+                                                                    <span class="text-[10px] text-gray-500 uppercase font-bold tracking-wider">{{ $extension ? strtoupper($extension) . ' FILE' : 'DOKUMEN' }}</span>
+                                                                </div>
                                                             </div>
-                                                            <div class="flex flex-col overflow-hidden">
-                                                                <span class="text-sm font-semibold text-gray-800 truncate">Lampiran Dokumen</span>
-                                                                <span class="text-[10px] text-gray-500 uppercase font-bold tracking-wider">{{ $extension }} FILE</span>
+                                                            <div class="flex items-center gap-1.5 flex-shrink-0">
+                                                                <a href="{{ $viewUrl }}" target="_blank" class="p-2 text-gray-600 hover:text-indigo-600 hover:bg-white rounded-lg transition" title="Lihat Pratinjau Dokumen">
+                                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                                                </a>
+                                                                <a href="{{ $downloadUrl }}" class="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition shadow-xs text-xs font-semibold" title="Unduh dan simpan ke lokal">
+                                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                                                    <span>Unduh</span>
+                                                                </a>
                                                             </div>
-                                                        </a>
+                                                        </div>
                                                     @endif
                                                 </div>
                                             @endif
@@ -447,29 +508,32 @@
                                     </div>
 
                                 @else
-                                    <div class="p-4 bg-gray-50 border-t border-gray-200">
+                                    <div class="p-3 bg-white border-t border-gray-200/80 shrink-0">
                                         <form action="{{ route('messages.store') }}" method="POST" enctype="multipart/form-data" class="flex flex-col gap-2">
                                             @csrf
                                             <input type="hidden" name="device_id" value="{{ $activeTicket->device_id }}">
                                             <input type="hidden" name="number" value="{{ $activeTicket->number }}">
 
-                                            <div id="file-preview-container" class="hidden px-4 py-2 bg-indigo-50 border border-indigo-100 rounded-xl text-xs flex justify-between items-center text-indigo-700 font-medium">
+                                            <div id="file-preview-container" class="hidden px-3.5 py-2 bg-indigo-50 border border-indigo-100 rounded-xl text-xs flex justify-between items-center text-indigo-700 font-medium">
                                                 <div class="flex items-center gap-2 overflow-hidden">
-                                                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
-                                                    <span id="file-name-display" class="truncate">nama-file.jpg</span>
+                                                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                                                    <span id="file-name-display" class="truncate font-semibold">nama-file.jpg</span>
                                                 </div>
-                                                <button type="button" onclick="removeFile()" class="text-red-500 hover:text-red-700 font-bold ml-2">✕ Hapus</button>
+                                                <button type="button" onclick="removeFile()" class="text-rose-600 hover:text-rose-800 font-bold ml-2 text-xs">✕ Hapus</button>
                                             </div>
 
-                                            <div class="flex gap-2 items-end">
-                                                <label class="cursor-pointer bg-white border border-gray-300 hover:bg-gray-100 text-gray-500 rounded-full p-3 shadow-xs transition flex items-center justify-center flex-shrink-0 w-12 h-12" title="Lampirkan Dokumen/Gambar">
+                                            <div class="flex gap-2 items-center">
+                                                <label class="cursor-pointer bg-gray-50 border border-gray-300 hover:bg-gray-100 text-gray-500 hover:text-indigo-600 rounded-xl p-2.5 shadow-xs transition flex items-center justify-center shrink-0 w-10 h-10" title="Lampirkan Dokumen/Foto">
                                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
                                                     <input type="file" name="file" id="file-upload" class="hidden" onchange="showFilePreview(this)">
                                                 </label>
 
-                                                <textarea name="message" rows="1" class="flex-1 resize-none border-gray-300 rounded-full shadow-xs focus:border-indigo-500 focus:ring-indigo-500 py-3 px-5 text-sm" placeholder="Ketik pesan atau caption lampiran..."></textarea>
+                                                <textarea name="message" rows="1" 
+                                                          onkeydown="if(event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); if(this.value.trim() || document.getElementById('file-upload').value) { this.form.submit(); } }"
+                                                          class="flex-1 resize-none border-gray-300 rounded-xl shadow-xs focus:border-indigo-500 focus:ring-indigo-500 py-2.5 px-4 text-sm max-h-28" 
+                                                          placeholder="Ketik pesan balasan... (Tekan Enter untuk kirim)"></textarea>
 
-                                                <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-full p-3 shadow-sm transition flex items-center justify-center flex-shrink-0 w-12 h-12">
+                                                <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl p-2.5 shadow-xs transition flex items-center justify-center shrink-0 w-10 h-10" title="Kirim Pesan">
                                                     <svg class="w-5 h-5 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
                                                 </button>
                                             </div>
@@ -478,15 +542,18 @@
                                 @endif
 
                             @else
-                                <div class="p-4 bg-gray-50 border-t border-gray-200 text-center">
-                                    <span class="text-gray-500 text-sm font-medium">Sesi obrolan tiket ini telah ditutup.</span>
+                                <div class="p-3 bg-emerald-50/80 border-t border-emerald-200 text-center shrink-0 flex items-center justify-center gap-2">
+                                    <span class="inline-flex items-center gap-1.5 text-emerald-800 text-xs font-semibold bg-emerald-100/90 border border-emerald-300 px-3.5 py-1 rounded-full shadow-xs">
+                                        <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                        Sesi obrolan tiket ini telah selesai.
+                                    </span>
                                 </div>
                             @endif
 
                         @else
                             {{-- Tampilan Kosong Saat Belum Memilih Tiket --}}
                             <div class="flex-1 flex flex-col items-center justify-center text-center px-4">
-                                <div class="w-20 h-20 rounded-full bg-white shadow-sm flex items-center justify-center text-indigo-500 mb-4 border border-gray-200">
+                                <div class="w-20 h-20 rounded-2xl bg-white shadow-xs flex items-center justify-center text-indigo-500 mb-4 border border-gray-200">
                                     <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
                                 </div>
                                 <h2 class="text-xl font-bold text-gray-800">Ruang Obrolan Live Chat</h2>
@@ -497,10 +564,7 @@
                         @endif
                     </div>
                 </div>
-
             </div>
-        </div>
-    </div>
 
     {{-- MODAL PESAN BARU --}}
     <div id="newMessageModal" class="fixed inset-0 z-50 hidden overflow-y-auto">
@@ -566,9 +630,15 @@
     {{-- MODAL LIGHTBOX GAMBAR --}}
     <div id="imageLightboxModal" class="fixed inset-0 z-[60] hidden flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-black bg-opacity-80 backdrop-blur-sm transition-opacity cursor-pointer" onclick="closeImageModal()"></div>
-        <button onclick="closeImageModal()" class="absolute top-4 right-4 text-white hover:text-gray-300 z-10 p-2 bg-black bg-opacity-50 rounded-full">
-            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-        </button>
+        <div class="absolute top-4 right-4 z-20 flex items-center gap-2">
+            <a id="lightboxDownloadBtn" href="#" class="px-3.5 py-2 bg-white/20 hover:bg-white/30 text-white text-xs font-semibold rounded-xl backdrop-blur-md transition flex items-center gap-1.5 shadow-md">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                <span>Unduh Gambar</span>
+            </a>
+            <button onclick="closeImageModal()" class="text-white hover:text-gray-300 p-2 bg-black bg-opacity-50 hover:bg-opacity-70 rounded-full transition" title="Tutup">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
         <div class="relative z-10 max-w-4xl max-h-screen">
             <img id="lightboxImage" src="" class="max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl border border-white/20" alt="Preview Gambar">
         </div>
@@ -638,10 +708,14 @@
         }
 
         // --- LIGHTBOX PREVIEW GAMBAR ---
-        function openImageModal(imageUrl) {
+        function openImageModal(imageUrl, downloadUrl = '') {
             let modal = document.getElementById('imageLightboxModal');
             let img = document.getElementById('lightboxImage');
+            let dlBtn = document.getElementById('lightboxDownloadBtn');
             img.src = imageUrl;
+            if (dlBtn) {
+                dlBtn.href = downloadUrl || imageUrl;
+            }
             modal.classList.remove('hidden');
         }
 
@@ -683,6 +757,13 @@
                     let oldSidebar = document.getElementById('sidebar-list');
                     if (newSidebar && oldSidebar) {
                         oldSidebar.innerHTML = newSidebar.innerHTML;
+                    }
+
+                    // Update sidebar tabs & counter badges silently
+                    let newTabs = doc.getElementById('sidebar-tabs');
+                    let oldTabs = document.getElementById('sidebar-tabs');
+                    if (newTabs && oldTabs) {
+                        oldTabs.innerHTML = newTabs.innerHTML;
                     }
 
                     // Update chat room silently

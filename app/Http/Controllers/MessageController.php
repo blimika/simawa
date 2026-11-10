@@ -11,6 +11,7 @@ use App\Services\GowaService;
 use Illuminate\Support\Str;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
 
 class MessageController extends Controller
 {
@@ -34,15 +35,37 @@ class MessageController extends Controller
         // 2. Ambil Kontak (Phonebook) untuk pencarian dan nama di UI
         $contacts = Phonebook::where('user_id', $user->getOwnerId())->get();
 
-        // 3. TAMPILKAN SEMUA TIKET DENGAN FITUR SEARCH
+        // 3. TAMPILKAN SEMUA TIKET DENGAN FITUR SEARCH & FILTER TAB
         $search = $request->input('search');
-        $ticketsQuery = Ticket::whereIn('device_id', $deviceIds);
+        $currentTab = $request->input('tab', 'all');
+
+        $ticketsBaseQuery = Ticket::whereIn('device_id', $deviceIds);
+
+        // Hitung total untuk masing-masing tab badge
+        $counts = [
+            'all'      => (clone $ticketsBaseQuery)->count(),
+            'antrean'  => (clone $ticketsBaseQuery)->where('status', 'open')->whereNull('agent_id')->count(),
+            'diproses' => (clone $ticketsBaseQuery)->where('status', 'open')->whereNotNull('agent_id')->count(),
+            'selesai'  => (clone $ticketsBaseQuery)->where('status', 'closed')->count(),
+        ];
+
+        $ticketsQuery = clone $ticketsBaseQuery;
+
+        // Terapkan filter tab
+        if ($currentTab === 'antrean') {
+            $ticketsQuery->where('status', 'open')->whereNull('agent_id');
+        } elseif ($currentTab === 'diproses') {
+            $ticketsQuery->where('status', 'open')->whereNotNull('agent_id');
+        } elseif ($currentTab === 'selesai') {
+            $ticketsQuery->where('status', 'closed');
+        }
 
         // Jika ada input pencarian (berdasarkan Nomor, Nomor Tiket, atau Nama Kontak)
         if (!empty($search)) {
             $ticketsQuery->where(function($q) use ($search) {
                 $q->where('number', 'like', "%{$search}%")
                   ->orWhere('ticket_number', 'like', "%{$search}%")
+                  ->orWhere('customer_name', 'like', "%{$search}%")
                   ->orWhereIn('number', function($sub) use ($search) {
                       $sub->select('number')
                           ->from('phonebooks')
@@ -52,7 +75,10 @@ class MessageController extends Controller
         }
 
         // Eksekusi query untuk daftar tiket (kiri)
-        $tickets = $ticketsQuery->with('device')->orderBy('updated_at', 'desc')->get();
+        $tickets = $ticketsQuery->with(['device', 'agent'])
+            ->orderBy('has_new_message', 'desc')
+            ->orderBy('updated_at', 'desc')
+            ->get();
 
         // Ambil dan cache avatar profil WhatsApp untuk setiap tiket
         foreach ($tickets as $t) {
@@ -155,7 +181,7 @@ class MessageController extends Controller
             $agents = $agentsQuery->get();
         }
 
-        return view('messages.index', compact('devices', 'tickets', 'activeTicket', 'messages', 'contactName', 'contacts', 'agents'));
+        return view('messages.index', compact('devices', 'tickets', 'activeTicket', 'messages', 'contactName', 'contacts', 'agents', 'counts', 'currentTab'));
     }
 
     /**
@@ -443,6 +469,91 @@ class MessageController extends Controller
         // Jika admin/superadmin atau ditugaskan ke diri sendiri, tetap buka tiket tersebut
         return redirect()->route('messages.index', ['ticket_id' => $ticket->id])
             ->with('success', "Tiket #{$ticket->ticket_number} berhasil {$actionText} ke {$targetAgent->name}.");
+    }
+
+    /**
+     * Unduh file media (foto, PDF, dokumen) ke penyimpanan lokal
+     */
+    public function downloadMedia(Message $message, GowaService $gowa)
+    {
+        $filePath = $this->ensureMediaLocally($message, $gowa);
+        if ($filePath && file_exists($filePath)) {
+            $filename = basename($filePath);
+            return response()->download($filePath, $filename);
+        }
+
+        return back()->with('error', 'File media tidak ditemukan atau gagal diunduh.');
+    }
+
+    /**
+     * Tampilkan media langsung di browser (inline preview)
+     */
+    public function viewMedia(Message $message, GowaService $gowa)
+    {
+        $filePath = $this->ensureMediaLocally($message, $gowa);
+        if ($filePath && file_exists($filePath)) {
+            return response()->file($filePath);
+        }
+
+        abort(404, 'File media tidak ditemukan.');
+    }
+
+    /**
+     * Memastikan file media tersimpan di disk lokal (public storage)
+     */
+    protected function ensureMediaLocally(Message $message, GowaService $gowa): ?string
+    {
+        $user = auth()->user();
+
+        // Validasi hak akses terhadap device
+        if (!$user->isSuperadmin()) {
+            $device = $message->device;
+            if (!$device) {
+                return null;
+            }
+            if ($user->isAdmin() && $device->user_id !== $user->id) {
+                return null;
+            }
+            if ($user->isAgent() && $device->user_id !== $user->parent_id) {
+                return null;
+            }
+        }
+
+        if (empty($message->media_url)) {
+            return null;
+        }
+
+        $mediaUrl = $message->media_url;
+        $isLocal = str_starts_with($mediaUrl, 'received_media/') || str_starts_with($mediaUrl, 'sent_media/');
+
+        if ($isLocal && Storage::disk('public')->exists($mediaUrl)) {
+            return Storage::disk('public')->path($mediaUrl);
+        }
+
+        // Jika belum lokal atau belum terunduh, unduh langsung dari GOWA
+        try {
+            $cleanPath = str_replace('\\', '/', $mediaUrl);
+            if (str_starts_with($cleanPath, 'http://') || str_starts_with($cleanPath, 'https://')) {
+                $downloadUrl = $cleanPath;
+            } else {
+                $downloadUrl = rtrim($gowa->getBaseUrl(), '/') . '/' . ltrim($cleanPath, '/');
+            }
+
+            $response = $gowa->baseClient(25)->get($downloadUrl);
+            if ($response->successful()) {
+                $extension = pathinfo(parse_url($cleanPath, PHP_URL_PATH), PATHINFO_EXTENSION) ?: 'bin';
+                $newFilename = 'media_' . time() . '_' . Str::random(5) . '.' . strtolower($extension);
+                Storage::disk('public')->put('received_media/' . $newFilename, $response->body());
+
+                $message->update(['media_url' => 'received_media/' . $newFilename]);
+
+                return Storage::disk('public')->path('received_media/' . $newFilename);
+            }
+        } catch (\Exception $e) {
+            \Log::error('Gagal mengambil media dari GOWA di ensureMediaLocally: ' . $e->getMessage());
+        }
+
+        return null;
     }
 }
 

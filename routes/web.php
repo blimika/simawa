@@ -111,6 +111,8 @@ Route::middleware(['auth', 'active.user'])->group(function () {
         Route::post('messages/{ticket}/close', [MessageController::class, 'closeTicket'])->name('messages.close');
         Route::post('messages/{ticket}/tag', [App\Http\Controllers\MessageController::class, 'updateTag'])->name('messages.update_tag');
         Route::post('messages/{ticket}/start', [App\Http\Controllers\MessageController::class, 'startService'])->name('messages.start');
+        Route::get('messages/{message}/download-media', [MessageController::class, 'downloadMedia'])->name('messages.media.download');
+        Route::get('messages/{message}/view-media', [MessageController::class, 'viewMedia'])->name('messages.media.view');
         Route::resource('messages', MessageController::class)->only(['index', 'store']);
         // Fitur Broadcast (Pesan Massal Anti-Blokir & Terjadwal)
         Route::get('broadcast', [BroadcastController::class, 'index'])->name('broadcast.index');
