@@ -285,6 +285,11 @@
                                                 </span>
                                             @endif
                                         </div>
+                                        @if($log->is_from_me && $log->target_number)
+                                            <div class="text-[11px] text-gray-500 font-mono mt-0.5" title="Nomor Tujuan">
+                                                Tujuan: <span class="text-blue-600 font-semibold">+{{ $log->target_number }}</span>
+                                            </div>
+                                        @endif
                                     </td>
 
                                     {{-- Kolom 5: Konten Pesan / Media / Kutipan --}}

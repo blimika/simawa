@@ -7,9 +7,11 @@ use App\Models\WebhookLog;
 use App\Models\Device;
 use App\Models\Message;
 use App\Models\Ticket;
+use App\Models\Phonebook;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Cache;
 use App\Services\GowaService; // Pastikan namespace GowaService Anda sudah benar
 
 class WebhookController extends Controller
@@ -62,7 +64,7 @@ class WebhookController extends Controller
                     'device_id' => $device->id,
                     'sender_number' => 'SYSTEM',
                     'message' => '[Device Logged Out] ' . data_get($data, 'payload.reason', 'Terputus dari WhatsApp'),
-                    'payload' => json_encode($data)
+                    'payload' => $data
                 ]);
             }
             return response()->json(['status' => 'success', 'message' => 'Device logged out handled']);
@@ -75,7 +77,7 @@ class WebhookController extends Controller
                     'device_id' => $device->id,
                     'sender_number' => 'SYSTEM',
                     'message' => "[Event: {$event}]",
-                    'payload' => json_encode($data)
+                    'payload' => $data
                 ]);
             }
             return response()->json(['status' => 'ignored', 'reason' => 'Bukan event message']);
@@ -147,166 +149,227 @@ class WebhookController extends Controller
             'device_id' => $device->id,
             'sender_number' => $senderNumber,
             'message' => $text ?: ($mediaPath ? '[File Media]' : null),
-            'payload' => json_encode($data)
+            'payload' => $data
         ]);
 
         // ====================================================================
         // CEK MODE LAYANAN: APAKAH LIVE CHAT DIAKTIFKAN UNTUK DEVICE INI?
         // ====================================================================
         if ($device->is_livechat_enabled) {
-            // Validasi Pesan (Abaikan jika dari diri sendiri atau grup)
-            if ((empty($text) && empty($mediaPath)) || $isFromMe || Str::contains($rawFrom, '@g.us') || Str::contains($chatId, '@g.us')) {
+            // Validasi Pesan: Abaikan jika bukan teks/media atau pesan berasal dari grup WhatsApp (@g.us)
+            if ((empty($text) && empty($mediaPath)) || Str::contains($rawFrom, '@g.us') || Str::contains($chatId, '@g.us')) {
                 $skipLiveChat = true;
             } else {
                 $skipLiveChat = false;
             }
 
             if (!$skipLiveChat) {
-                // --- DOWNLOAD MEDIA KE SERVER SIMAWA ---
-                $finalMediaUrl = null;
-                if (!empty($mediaPath)) {
-                    try {
-                        $cleanPath = str_replace('\\', '/', $mediaPath);
+                // Tentukan nomor pelanggan (customer number):
+                // - Jika is_from_me = true (pesan keluar dikirim via WA Web/HP), nomor pelanggan ada di chatId
+                // - Jika is_from_me = false (pesan masuk dari pelanggan), nomor pelanggan ada di rawFrom (senderNumber)
+                $targetCustomerNumber = $isFromMe
+                    ? (!empty($chatId) ? explode('@', explode(':', $chatId)[0])[0] : $senderNumber)
+                    : $senderNumber;
 
-                        if (str_starts_with($cleanPath, 'http://') || str_starts_with($cleanPath, 'https://')) {
-                            $downloadUrl = $cleanPath;
-                        } else {
-                            $downloadUrl = rtrim($gowa->getBaseUrl(), '/') . '/' . ltrim($cleanPath, '/');
-                        }
-
-                        $response = $gowa->baseClient(20)->get($downloadUrl);
-
-                        // Jika gagal download langsung dan auto-download di GOWA mati, coba via endpoint v9 /message/{id}/download
-                        if (!$response->successful() && !empty(data_get($payload, 'id'))) {
-                            try {
-                                $downloadMediaResp = $gowa->downloadMedia($device->gowa_session_id, data_get($payload, 'id'), $senderNumber);
-                                if ($downloadMediaResp->successful()) {
-                                    $fileUrl = data_get($downloadMediaResp->json(), 'results.file_url');
-                                    if ($fileUrl) {
-                                        $response = $gowa->baseClient(20)->get($fileUrl);
-                                    }
-                                }
-                            } catch (\Exception $ex) {
-                                // Fallback
-                            }
-                        }
-
-                        if ($response->successful()) {
-                            $cleanPathOnly = parse_url($cleanPath, PHP_URL_PATH);
-                            $extension = pathinfo($cleanPathOnly, PATHINFO_EXTENSION);
-                            if (empty($extension) && $originalDocName) {
-                                $extension = pathinfo($originalDocName, PATHINFO_EXTENSION);
-                            }
-                            if (empty($extension)) {
-                                $extension = 'bin';
-                            }
-
-                            $safeDocName = '';
-                            if ($originalDocName) {
-                                $base = Str::slug(pathinfo($originalDocName, PATHINFO_FILENAME));
-                                if ($base) {
-                                    $safeDocName = '_' . substr($base, 0, 30);
-                                }
-                            }
-
-                            $filename = 'media_' . time() . '_' . Str::random(5) . $safeDocName . '.' . strtolower($extension);
-
-                            Storage::disk('public')->put('received_media/' . $filename, $response->body());
-                            $finalMediaUrl = 'received_media/' . $filename;
-                        } else {
-                            $finalMediaUrl = $mediaPath;
-                        }
-                    } catch (\Exception $e) {
-                        \Log::error('Gagal download media dari GOWA: ' . $e->getMessage());
-                        $finalMediaUrl = $mediaPath;
-                    }
+                $targetCustomerNumber = preg_replace('/[^0-9]/', '', $targetCustomerNumber);
+                if (str_starts_with($targetCustomerNumber, '0')) {
+                    $targetCustomerNumber = '62' . substr($targetCustomerNumber, 1);
                 }
 
-                // 7. Simpan sebagai Pesan Masuk (Pesan dari Pelanggan)
-                Message::create([
-                    'device_id' => $device->id,
-                    'user_id' => null,
-                    'number' => $senderNumber,
-                    'message' => $text,
-                    'quoted_message' => $quotedBody, // SIMPAN KUTIPAN DI SINI
-                    'direction' => 'in',
-                    'status' => 'received',
-                    'media_url' => $finalMediaUrl
-                ]);
-
-                // 8. UPDATE ATAU BUAT TIKET LIVE CHAT
-                // Cari HANYA tiket yang statusnya masih OPEN
-                $ticket = Ticket::where('device_id', $device->id)
-                            ->where('number', $senderNumber)
-                            ->where('status', 'open')
-                            ->first();
-
-                if ($ticket) {
-                    // Jika masih ada tiket open, tandai ada pesan baru
-                    $updateData = [
-                        'has_new_message' => true,
-                        'customer_name' => $fromName,
-                    ];
-                    if (empty($ticket->avatar_url)) {
-                        $avatarRes = $gowa->getUserAvatar($device->gowa_session_id, $senderNumber, true);
-                        if (!empty($avatarRes['results']['url'])) {
-                            $updateData['avatar_url'] = $avatarRes['results']['url'];
-                        }
+                // Cegah pemrosesan duplikat berdasarkan ID unik pesan WhatsApp
+                $messageId = data_get($payload, 'id');
+                if (!empty($messageId)) {
+                    $cacheKey = "gowa_msg_processed_{$messageId}";
+                    if (Cache::has($cacheKey)) {
+                        return response()->json(['status' => 'ignored', 'reason' => 'Pesan sudah diproses sebelumnya']);
                     }
-                    $ticket->update($updateData);
-                } else {
+                    Cache::put($cacheKey, true, now()->addMinutes(10));
+                }
+
+                if ($isFromMe) {
                     // =============================================================
-                    // KONDISI: TIKET BARU / TIKET SEBELUMNYA SUDAH CLOSED
+                    // KONDISI: PESAN KELUAR (Dikirim dari WhatsApp Web / Aplikasi WA HP)
                     // =============================================================
 
-                    // Ambil avatar kontak dari WhatsApp
-                    $avatarUrl = null;
-                    try {
-                        $avatarRes = $gowa->getUserAvatar($device->gowa_session_id, $senderNumber, true);
-                        $avatarUrl = $avatarRes['results']['url'] ?? null;
-                    } catch (\Exception $e) {}
+                    // Cek apakah pesan ini baru saja dikirim oleh SIMAWA Live Chat (dalam 30 detik terakhir)
+                    // Jika dikirim lewat web SIMAWA, maka sudah tercatat di tabel messages
+                    $isSentBySimawa = Message::where('device_id', $device->id)
+                        ->where('number', $targetCustomerNumber)
+                        ->where('direction', 'out')
+                        ->where('created_at', '>=', now()->subSeconds(30))
+                        ->where(function ($q) use ($text, $mediaPath) {
+                            if (!empty($text)) {
+                                $q->where('message', $text)
+                                  ->orWhere('message', 'like', $text . "\n\n*(%")
+                                  ->orWhere('message', 'like', "%" . $text . "%");
+                            } elseif (!empty($mediaPath)) {
+                                $q->whereNotNull('media_url');
+                            }
+                        })
+                        ->exists();
 
-                    // Buat variabel pendukung pesan pembuka
-                    $ticketNumber = 'LYN-' . date('ymd') . '-' . strtoupper(Str::random(4));
-                    $customerName = $fromName ?: 'Bapak/Ibu';
-                    $deviceName = $device->name ?: 'SIMAWA';
+                    if ($isSentBySimawa) {
+                        // Sudah dicatat oleh SIMAWA saat pengiriman via Web UI, abaikan webhook echo ini
+                        return response()->json(['status' => 'success', 'message' => 'Pesan keluar SIMAWA sudah dicatat sebelumnya']);
+                    }
 
-                    // A. Buat Tiket Baru yang bersih (Fresh) di database
-                    Ticket::create([
-                        'ticket_number' => $ticketNumber,
+                    // Download media jika pesan menyertakan file/gambar
+                    $finalMediaUrl = $this->downloadMediaFile($gowa, $device, $payload, $mediaPath, $originalDocName, $targetCustomerNumber);
+
+                    // Cari tiket yang sedang OPEN untuk nomor tujuan ini
+                    $ticket = Ticket::where('device_id', $device->id)
+                                ->where('number', $targetCustomerNumber)
+                                ->where('status', 'open')
+                                ->first();
+
+                    // Simpan sebagai Pesan Keluar ke tabel messages
+                    Message::create([
                         'device_id' => $device->id,
-                        'number' => $senderNumber,
-                        'customer_name' => $fromName,
-                        'avatar_url' => $avatarUrl,
-                        'agent_id' => null, // Bebas untuk diambil agen lain
-                        'status' => 'open',
-                        'has_new_message' => true
+                        'user_id' => $ticket?->agent_id ?: $device->user_id,
+                        'number' => $targetCustomerNumber,
+                        'message' => $text,
+                        'quoted_message' => $quotedBody,
+                        'direction' => 'out',
+                        'status' => 'sent',
+                        'media_url' => $finalMediaUrl
                     ]);
 
-                    // B. Kirim Salam Pembuka Otomatis (Hanya jika fitur Salam Pembuka diaktifkan untuk device ini)
-                    if ($device->isGreetingEnabled()) {
-                        // Rangkai Teks Pesan Pembuka Otomatis Sesuai Request / Custom Template
-                        $greetingMessage = $device->getFormattedGreetingMessage($customerName, $ticketNumber);
-
-                        // C. Kirim Pesan Pembuka ke WhatsApp Pelanggan via GOWA
-                        $sendGreeting = $gowa->sendMessage(
-                            $device->gowa_session_id,
-                            $senderNumber,
-                            $greetingMessage
-                        );
-
-                        // D. Jika Pesan Pembuka Sukses Terkirim, Catat ke Tabel Messages
-                        if ($sendGreeting->successful()) {
-                            Message::create([
-                                'device_id' => $device->id,
-                                'user_id' => null, // null karena bot/sistem yang mengirim
-                                'number' => $senderNumber,
-                                'message' => $greetingMessage,
-                                'direction' => 'out', // Arah keluar
-                                'status' => 'sent',
-                            ]);
+                    // Update tiket atau buat baru jika belum ada
+                    if ($ticket) {
+                        $updateData = [];
+                        if (empty($ticket->agent_id) && !empty($device->user_id)) {
+                            $updateData['agent_id'] = $device->user_id;
+                        }
+                        if (empty($ticket->avatar_url)) {
+                            try {
+                                $avatarRes = $gowa->getUserAvatar($device->gowa_session_id, $targetCustomerNumber, true);
+                                if (!empty($avatarRes['results']['url'])) {
+                                    $updateData['avatar_url'] = $avatarRes['results']['url'];
+                                }
+                            } catch (\Exception $e) {}
+                        }
+                        if (!empty($updateData)) {
+                            $ticket->update($updateData);
                         } else {
-                            \Log::error("Gagal mengirim Auto-Reply Greeting ke nomor: " . $senderNumber);
+                            $ticket->touch();
+                        }
+                    } else {
+                        // Belum ada tiket open: buat tiket baru agar obrolan muncul di Live Chat
+                        $avatarUrl = null;
+                        try {
+                            $avatarRes = $gowa->getUserAvatar($device->gowa_session_id, $targetCustomerNumber, true);
+                            $avatarUrl = $avatarRes['results']['url'] ?? null;
+                        } catch (\Exception $e) {}
+
+                        // Cek nama dari kontak phonebook
+                        $contact = Phonebook::where('number', $targetCustomerNumber)->first();
+                        $custName = $contact?->name;
+                        if (empty($custName)) {
+                            $oldTicket = Ticket::where('device_id', $device->id)
+                                ->where('number', $targetCustomerNumber)
+                                ->latest()
+                                ->first();
+                            $custName = $oldTicket?->customer_name ?: null;
+                        }
+
+                        Ticket::create([
+                            'ticket_number' => 'LYN-' . date('ymd') . '-' . strtoupper(Str::random(4)),
+                            'device_id' => $device->id,
+                            'number' => $targetCustomerNumber,
+                            'customer_name' => $custName,
+                            'avatar_url' => $avatarUrl,
+                            'agent_id' => $device->user_id,
+                            'status' => 'open',
+                            'has_new_message' => false,
+                        ]);
+                    }
+
+                } else {
+                    // =============================================================
+                    // KONDISI: PESAN MASUK (Dari Pelanggan)
+                    // =============================================================
+
+                    // Download media jika pesan menyertakan file/gambar
+                    $finalMediaUrl = $this->downloadMediaFile($gowa, $device, $payload, $mediaPath, $originalDocName, $targetCustomerNumber);
+
+                    // Simpan sebagai Pesan Masuk
+                    Message::create([
+                        'device_id' => $device->id,
+                        'user_id' => null,
+                        'number' => $targetCustomerNumber,
+                        'message' => $text,
+                        'quoted_message' => $quotedBody,
+                        'direction' => 'in',
+                        'status' => 'received',
+                        'media_url' => $finalMediaUrl
+                    ]);
+
+                    // UPDATE ATAU BUAT TIKET LIVE CHAT
+                    $ticket = Ticket::where('device_id', $device->id)
+                                ->where('number', $targetCustomerNumber)
+                                ->where('status', 'open')
+                                ->first();
+
+                    if ($ticket) {
+                        // Jika masih ada tiket open, tandai ada pesan baru
+                        $updateData = [
+                            'has_new_message' => true,
+                            'customer_name' => $fromName ?: $ticket->customer_name,
+                        ];
+                        if (empty($ticket->avatar_url)) {
+                            try {
+                                $avatarRes = $gowa->getUserAvatar($device->gowa_session_id, $targetCustomerNumber, true);
+                                if (!empty($avatarRes['results']['url'])) {
+                                    $updateData['avatar_url'] = $avatarRes['results']['url'];
+                                }
+                            } catch (\Exception $e) {}
+                        }
+                        $ticket->update($updateData);
+                    } else {
+                        // KONDISI: TIKET BARU / TIKET SEBELUMNYA SUDAH CLOSED
+                        $avatarUrl = null;
+                        try {
+                            $avatarRes = $gowa->getUserAvatar($device->gowa_session_id, $targetCustomerNumber, true);
+                            $avatarUrl = $avatarRes['results']['url'] ?? null;
+                        } catch (\Exception $e) {}
+
+                        $ticketNumber = 'LYN-' . date('ymd') . '-' . strtoupper(Str::random(4));
+                        $customerName = $fromName ?: 'Bapak/Ibu';
+
+                        // Buat Tiket Baru di database
+                        Ticket::create([
+                            'ticket_number' => $ticketNumber,
+                            'device_id' => $device->id,
+                            'number' => $targetCustomerNumber,
+                            'customer_name' => $fromName,
+                            'avatar_url' => $avatarUrl,
+                            'agent_id' => null,
+                            'status' => 'open',
+                            'has_new_message' => true
+                        ]);
+
+                        // Kirim Salam Pembuka Otomatis (Hanya jika fitur Salam Pembuka diaktifkan untuk device ini)
+                        if ($device->isGreetingEnabled()) {
+                            $greetingMessage = $device->getFormattedGreetingMessage($customerName, $ticketNumber);
+
+                            $sendGreeting = $gowa->sendMessage(
+                                $device->gowa_session_id,
+                                $targetCustomerNumber,
+                                $greetingMessage
+                            );
+
+                            if ($sendGreeting->successful()) {
+                                Message::create([
+                                    'device_id' => $device->id,
+                                    'user_id' => null,
+                                    'number' => $targetCustomerNumber,
+                                    'message' => $greetingMessage,
+                                    'direction' => 'out',
+                                    'status' => 'sent',
+                                ]);
+                            } else {
+                                \Log::error("Gagal mengirim Auto-Reply Greeting ke nomor: " . $targetCustomerNumber);
+                            }
                         }
                     }
                 }
@@ -518,5 +581,71 @@ class WebhookController extends Controller
         $query->delete();
 
         return back()->with('success', "{$count} riwayat Webhook berhasil dibersihkan.");
+    }
+
+    /**
+     * Download file media dari server GOWA dan simpan ke storage publik SIMAWA
+     */
+    private function downloadMediaFile($gowa, $device, $payload, ?string $mediaPath, ?string $originalDocName, string $targetNumber): ?string
+    {
+        if (empty($mediaPath)) {
+            return null;
+        }
+
+        try {
+            $cleanPath = str_replace('\\', '/', $mediaPath);
+
+            if (str_starts_with($cleanPath, 'http://') || str_starts_with($cleanPath, 'https://')) {
+                $downloadUrl = $cleanPath;
+            } else {
+                $downloadUrl = rtrim($gowa->getBaseUrl(), '/') . '/' . ltrim($cleanPath, '/');
+            }
+
+            $response = $gowa->baseClient(20)->get($downloadUrl);
+
+            // Jika gagal download langsung dan auto-download di GOWA mati, coba via endpoint v9 /message/{id}/download
+            if (!$response->successful() && !empty(data_get($payload, 'id'))) {
+                try {
+                    $downloadMediaResp = $gowa->downloadMedia($device->gowa_session_id, data_get($payload, 'id'), $targetNumber);
+                    if ($downloadMediaResp->successful()) {
+                        $fileUrl = data_get($downloadMediaResp->json(), 'results.file_url');
+                        if ($fileUrl) {
+                            $response = $gowa->baseClient(20)->get($fileUrl);
+                        }
+                    }
+                } catch (\Exception $ex) {
+                    // Fallback
+                }
+            }
+
+            if ($response->successful()) {
+                $cleanPathOnly = parse_url($cleanPath, PHP_URL_PATH);
+                $extension = pathinfo($cleanPathOnly, PATHINFO_EXTENSION);
+                if (empty($extension) && $originalDocName) {
+                    $extension = pathinfo($originalDocName, PATHINFO_EXTENSION);
+                }
+                if (empty($extension)) {
+                    $extension = 'bin';
+                }
+
+                $safeDocName = '';
+                if ($originalDocName) {
+                    $base = Str::slug(pathinfo($originalDocName, PATHINFO_FILENAME));
+                    if ($base) {
+                        $safeDocName = '_' . substr($base, 0, 30);
+                    }
+                }
+
+                $filename = 'media_' . time() . '_' . Str::random(5) . $safeDocName . '.' . strtolower($extension);
+
+                Storage::disk('public')->put('received_media/' . $filename, $response->body());
+                return 'received_media/' . $filename;
+            }
+
+            return $mediaPath;
+        } catch (\Exception $e) {
+            \Log::error('Gagal download media dari GOWA: ' . $e->getMessage());
+            return $mediaPath;
+        }
     }
 }

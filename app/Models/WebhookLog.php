@@ -36,6 +36,9 @@ class WebhookLog extends Model
 
         if (is_string($this->payload)) {
             $decoded = json_decode($this->payload, true);
+            if (is_string($decoded)) {
+                $decoded = json_decode($decoded, true);
+            }
             return is_array($decoded) ? $decoded : [];
         }
 
@@ -158,5 +161,17 @@ class WebhookLog extends Model
     public function getIsFromMeAttribute(): bool
     {
         return (bool) data_get($this->payload_data, 'payload.is_from_me', false);
+    }
+
+    /**
+     * Ambil nomor tujuan pelanggan jika pesan keluar (outbound / from me)
+     */
+    public function getTargetNumberAttribute(): ?string
+    {
+        if ($this->is_from_me && $this->chat_id) {
+            $clean = explode('@', explode(':', $this->chat_id)[0])[0];
+            return preg_replace('/[^0-9]/', '', $clean);
+        }
+        return null;
     }
 }
