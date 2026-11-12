@@ -14,7 +14,9 @@ class Message extends Model
         'user_id',
         'number',
         'message',
-        'quoted_message', // TAMBAHKAN BARIS INI
+        'quoted_message',
+        'wa_message_id',
+        'reply_to_id',
         'media_url',
         'direction',
         'status'
@@ -28,5 +30,10 @@ class Message extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function replyTo()
+    {
+        return $this->belongsTo(Message::class, 'reply_to_id');
     }
 }

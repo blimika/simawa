@@ -125,7 +125,8 @@ class MessageController extends Controller
             }
 
             // Ambil riwayat chat untuk tiket yang sedang aktif
-            $messages = Message::where('device_id', $activeTicket->device_id)
+            $messages = Message::with(['user', 'replyTo.user'])
+                        ->where('device_id', $activeTicket->device_id)
                         ->where('number', $activeTicket->number)
                         ->orderBy('created_at', 'asc')
                         ->get();
@@ -194,6 +195,7 @@ class MessageController extends Controller
             'number' => 'required',
             'message' => 'nullable|string',
             'file' => 'nullable|file|max:50000',
+            'reply_to_id' => 'nullable|integer|exists:messages,id',
         ]);
 
         if (empty($request->message) && !$request->hasFile('file')) {
@@ -206,6 +208,21 @@ class MessageController extends Controller
 
         $baseMessage = $request->message ?? '';
         $messageToSend = $baseMessage ? $baseMessage . "\n\n*({$agentName})*" : "*({$agentName})*";
+
+        // Ambil informasi pesan yang dibalas (baik pesan dari responden maupun pesan sendiri)
+        $replyToMsg = null;
+        $quotedMessage = null;
+        if ($request->filled('reply_to_id')) {
+            $replyToMsg = Message::where('device_id', $device->id)->find($request->reply_to_id);
+            if ($replyToMsg) {
+                $quotedMessage = $replyToMsg->message;
+                if (empty($quotedMessage) && $replyToMsg->media_url) {
+                    $ext = strtolower(pathinfo(parse_url($replyToMsg->media_url, PHP_URL_PATH) ?: $replyToMsg->media_url, PATHINFO_EXTENSION));
+                    $isImg = in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'jfif', 'svg', 'bmp']);
+                    $quotedMessage = $isImg ? '📷 [Foto]' : '📄 [Dokumen: ' . basename($replyToMsg->media_url) . ']';
+                }
+            }
+        }
 
         $fileContents = null;
         $fileName = null;
@@ -238,27 +255,57 @@ class MessageController extends Controller
             // Format final untuk dikirim ke API GOWA
             $formattedPhone = $cleanNumber . '@s.whatsapp.net';
 
+            // Cocokkan reply ke nomor tujuan saat ini
+            $activeReplyMsg = ($replyToMsg && $replyToMsg->number === $cleanNumber) ? $replyToMsg : null;
+            $replyWaId = $activeReplyMsg?->wa_message_id;
+            $activeQuoted = $activeReplyMsg ? $quotedMessage : null;
+
+            $gowaMessageText = $messageToSend;
+            if ($activeReplyMsg && empty($replyWaId) && !empty($activeQuoted)) {
+                // Fallback konteks kutipan jika pesan lama belum memiliki wa_message_id di database
+                $shortQuote = Str::limit(str_replace(["\r", "\n"], ' ', $activeQuoted), 80);
+                $gowaMessageText = "> _Membalas: \"{$shortQuote}\"_\n\n" . $messageToSend;
+            }
+
             try {
                 // =======================================================
                 // 2. PROSES PENGIRIMAN
                 // =======================================================
-                if ($fileContents) {
-                    $extension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
-                    $imageExtensions = ['jpg', 'jpeg', 'png', 'webp'];
+                $response = $this->dispatchToGowa(
+                    $gowa,
+                    $device->gowa_session_id,
+                    $formattedPhone,
+                    $gowaMessageText,
+                    $fileContents,
+                    $fileName,
+                    $replyWaId
+                );
 
-                    if (in_array($extension, $imageExtensions)) {
-                        $response = $gowa->sendImage($device->gowa_session_id, $formattedPhone, $fileContents, $fileName, $messageToSend);
-                    } else {
-                        $response = $gowa->sendFile($device->gowa_session_id, $formattedPhone, $fileContents, $fileName, $messageToSend);
-                    }
-                } else {
-                    $response = $gowa->sendMessage($device->gowa_session_id, $formattedPhone, $messageToSend);
+                // Jika GOWA menolak reply_message_id (misal pesan terlalu lama/tidak ada di cache lokal GOWA),
+                // kirim ulang dengan fallback kutipan teks agar pesan tetap terkirim ke WhatsApp.
+                if ((!$response || !$response->successful()) && !empty($replyWaId)) {
+                    $shortQuote = Str::limit(str_replace(["\r", "\n"], ' ', (string) $activeQuoted), 80);
+                    $fallbackText = !empty($shortQuote)
+                        ? "> _Membalas: \"{$shortQuote}\"_\n\n" . $messageToSend
+                        : $messageToSend;
+
+                    $response = $this->dispatchToGowa(
+                        $gowa,
+                        $device->gowa_session_id,
+                        $formattedPhone,
+                        $fallbackText,
+                        $fileContents,
+                        $fileName,
+                        null
+                    );
                 }
 
                 // =======================================================
                 // 3. CEK HASIL RESPON DARI GOWA
                 // =======================================================
                 if ($response && $response->successful()) {
+                    $sentWaMessageId = data_get($response->json(), 'results.message_id')
+                        ?: data_get($response->json(), 'results.id');
 
                     // Simpan ke Tiket & Messages menggunakan nomor yang sudah bersih (62...)
                     $ticket = Ticket::where('device_id', $device->id)
@@ -268,7 +315,7 @@ class MessageController extends Controller
 
                     if (!$ticket) {
                         Ticket::create([
-                            'ticket_number' => 'LYN-' . date('ymd') . '-' . strtoupper(\Illuminate\Support\Str::random(4)),
+                            'ticket_number' => 'LYN-' . date('ymd') . '-' . strtoupper(Str::random(4)),
                             'device_id' => $device->id,
                             'number' => $cleanNumber,
                             'agent_id' => auth()->id(),
@@ -285,6 +332,9 @@ class MessageController extends Controller
                         'user_id' => auth()->id(),
                         'number' => $cleanNumber,
                         'message' => $messageToSend,
+                        'quoted_message' => $activeQuoted,
+                        'wa_message_id' => $sentWaMessageId,
+                        'reply_to_id' => $activeReplyMsg?->id,
                         'media_url' => $mediaUrl,
                         'direction' => 'out',
                         'status' => 'sent',
@@ -306,6 +356,33 @@ class MessageController extends Controller
 
         // Tampilkan pesan error yang sesungguhnya ke layar Admin
         return back()->with('error', 'Gagal mengirim pesan. GOWA membalas: ' . $lastError);
+    }
+
+    /**
+     * Helper pengiriman pesan teks/gambar/file ke API GOWA (mendukung reply_message_id)
+     */
+    private function dispatchToGowa(
+        GowaService $gowa,
+        string $sessionId,
+        string $formattedPhone,
+        string $messageText,
+        ?string $fileContents,
+        ?string $fileName,
+        ?string $replyWaId = null
+    ) {
+        if ($fileContents) {
+            $extension = strtolower(pathinfo((string) $fileName, PATHINFO_EXTENSION));
+            $imageExtensions = ['jpg', 'jpeg', 'png', 'webp'];
+
+            if (in_array($extension, $imageExtensions)) {
+                $options = !empty($replyWaId) ? ['reply_message_id' => $replyWaId] : [];
+                return $gowa->sendImage($sessionId, $formattedPhone, $fileContents, (string) $fileName, $messageText, $options);
+            }
+
+            return $gowa->sendFile($sessionId, $formattedPhone, $fileContents, (string) $fileName, $messageText, $replyWaId);
+        }
+
+        return $gowa->sendMessage($sessionId, $formattedPhone, $messageText, $replyWaId);
     }
 
     /**
@@ -337,11 +414,13 @@ class MessageController extends Controller
 
                 // 4. Jika pengiriman berhasil, catat pesan tersebut ke ruang chat
                 if ($response->successful()) {
+                    $waMsgId = data_get($response->json(), 'results.message_id') ?: data_get($response->json(), 'results.id');
                     Message::create([
                         'device_id' => $ticket->device_id,
                         'user_id' => auth()->id(), // Agen yang menutup tiket
                         'number' => $ticket->number,
                         'message' => $closingMessage,
+                        'wa_message_id' => $waMsgId,
                         'direction' => 'out',
                         'status' => 'sent',
                     ]);
@@ -402,11 +481,13 @@ class MessageController extends Controller
             );
 
             if ($response->successful()) {
+                $waMsgId = data_get($response->json(), 'results.message_id') ?: data_get($response->json(), 'results.id');
                 Message::create([
                     'device_id' => $ticket->device_id,
                     'user_id' => $user->id,
                     'number' => $ticket->number,
                     'message' => $claimMessage,
+                    'wa_message_id' => $waMsgId,
                     'direction' => 'out',
                     'status' => 'sent',
                 ]);

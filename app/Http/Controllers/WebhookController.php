@@ -186,6 +186,17 @@ class WebhookController extends Controller
                     Cache::put($cacheKey, true, now()->addMinutes(10));
                 }
 
+                // Tautkan ke pesan lokal yang dibalas jika ada replied_to_id dari WhatsApp
+                $repliedDbMsg = null;
+                if (!empty($repliedToId)) {
+                    $repliedDbMsg = Message::where('device_id', $device->id)
+                        ->where('wa_message_id', $repliedToId)
+                        ->first();
+                    if ($repliedDbMsg && ($quotedBody === '📷 [Membalas Lampiran / File Media]' || empty($quotedBody)) && !empty($repliedDbMsg->message)) {
+                        $quotedBody = $repliedDbMsg->message;
+                    }
+                }
+
                 if ($isFromMe) {
                     // =============================================================
                     // KONDISI: PESAN KELUAR (Dikirim dari WhatsApp Web / Aplikasi WA HP)
@@ -229,6 +240,8 @@ class WebhookController extends Controller
                         'number' => $targetCustomerNumber,
                         'message' => $text,
                         'quoted_message' => $quotedBody,
+                        'wa_message_id' => $messageId,
+                        'reply_to_id' => $repliedDbMsg?->id,
                         'direction' => 'out',
                         'status' => 'sent',
                         'media_url' => $finalMediaUrl
@@ -299,6 +312,8 @@ class WebhookController extends Controller
                         'number' => $targetCustomerNumber,
                         'message' => $text,
                         'quoted_message' => $quotedBody,
+                        'wa_message_id' => $messageId,
+                        'reply_to_id' => $repliedDbMsg?->id,
                         'direction' => 'in',
                         'status' => 'received',
                         'media_url' => $finalMediaUrl
@@ -359,11 +374,15 @@ class WebhookController extends Controller
                             );
 
                             if ($sendGreeting->successful()) {
+                                $greetingWaId = data_get($sendGreeting->json(), 'results.message_id')
+                                    ?: data_get($sendGreeting->json(), 'results.id');
+
                                 Message::create([
                                     'device_id' => $device->id,
                                     'user_id' => null,
                                     'number' => $targetCustomerNumber,
                                     'message' => $greetingMessage,
+                                    'wa_message_id' => $greetingWaId,
                                     'direction' => 'out',
                                     'status' => 'sent',
                                 ]);

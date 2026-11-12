@@ -108,11 +108,13 @@ class MessageController extends Controller
             if ($response->successful()) {
 
                 if ($device->is_livechat_enabled) {
+                    $waMsgId = data_get($response->json(), 'results.message_id') ?: data_get($response->json(), 'results.id');
                     Message::create([
                         'device_id' => $device->id,
                         'user_id'   => null,
                         'number'    => preg_replace('/[^0-9]/', '', $request->number),
                         'message'   => $request->message ?? '[Mengirim Lampiran File via API]',
+                        'wa_message_id' => $waMsgId,
                         'media_url' => $request->url ?? ($request->hasFile('file') ? 'uploaded_file' : null),
                         'direction' => 'out',
                         'status'    => 'sent',

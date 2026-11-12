@@ -73,12 +73,15 @@ class BroadcastService
                         'response_data' => substr($response->body(), 0, 500),
                     ]);
 
+                    $waMsgId = data_get($response->json(), 'results.message_id') ?: data_get($response->json(), 'results.id');
+
                     // Catat ke tabel messages agar muncul di riwayat Live Chat
                     Message::create([
                         'device_id' => $device->id,
                         'user_id' => $campaign->user_id,
                         'number' => $recipient->number,
                         'message' => $recipient->message,
+                        'wa_message_id' => $waMsgId,
                         'direction' => 'out',
                         'status' => 'sent',
                     ]);
