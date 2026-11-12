@@ -52,6 +52,16 @@
                 </div>
             @endif
 
+            @if (isset($errors) && $errors->any())
+                <div class="mb-5 bg-red-50 border border-red-300 text-red-800 px-4 py-3.5 rounded-xl shadow-sm">
+                    <ul class="list-disc list-inside text-sm space-y-0.5">
+                        @foreach ($errors->all() as $error)
+                            <li>{{ $error }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
+
             {{-- Navigasi Tab Utama --}}
             <div class="mb-6 border-b border-gray-200">
                 <nav class="flex space-x-4 sm:space-x-8" aria-label="Tabs">
@@ -87,23 +97,28 @@
             {{-- TAB 1: BUKU TELEPON SIMAWA                               --}}
             {{-- ======================================================== --}}
             @if ($tab !== 'whatsapp')
-                {{-- Card Import CSV --}}
-                <div class="mb-6 bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                {{-- Card Import XLS --}}
+                <div class="mb-6 bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                     <div>
-                        <h3 class="font-bold text-gray-800 text-lg">Import Kontak Massal via CSV</h3>
-                        <p class="text-sm text-gray-500 mt-1 mb-2">Upload file spreadsheet dengan format <strong>.CSV</strong> (Nama Kontak, Nomor WhatsApp, Kategori).</p>
-                        <a href="{{ route('phonebook.template') }}" class="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-md transition w-max">
+                        <div class="flex items-center gap-2">
+                            <h3 class="font-bold text-gray-800 text-lg">Import Kontak Massal (.XLS)</h3>
+                            <span class="px-2 py-0.5 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">Format .xls saja</span>
+                        </div>
+                        <p class="text-sm text-gray-500 mt-1 mb-2.5">
+                            Upload file Excel khusus format <strong>.XLS</strong>. Kolom: <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs">Nama Kontak</code>, <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs">Nomor WhatsApp</code>, <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs">Kategori</code>.
+                        </p>
+                        <a href="{{ route('phonebook.template') }}" class="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-1.5 rounded-lg transition w-max">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                            Download Template CSV
+                            Download Template XLS
                         </a>
                     </div>
 
-                    <form action="{{ route('phonebook.import') }}" method="POST" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+                    <form action="{{ route('phonebook.import') }}" method="POST" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
                         @csrf
-                        <input type="file" name="file" accept=".csv" required class="block w-full text-sm text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition">
+                        <input type="file" name="file" accept=".xls" required class="block w-full text-sm text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 transition">
                         <button type="submit" class="w-full sm:w-auto shrink-0 whitespace-nowrap bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-full text-sm font-bold transition shadow-sm flex items-center justify-center gap-2">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-                            Import File CSV
+                            Import File XLS
                         </button>
                     </form>
                 </div>
@@ -204,8 +219,7 @@
 
                                                     <a href="{{ route('phonebook.edit', $contact->id) }}" class="text-indigo-600 hover:text-indigo-900 font-semibold text-xs">Edit</a>
 
-                                                    <button type="submit" formaction="{{ route('phonebook.destroy', $contact->id) }}" formmethod="POST" onclick="return confirm('Hapus kontak ini?')" class="text-red-600 hover:text-red-900 font-semibold text-xs">
-                                                        @method('DELETE')
+                                                    <button type="button" data-url="{{ route('phonebook.destroy', $contact->id) }}" data-name="{{ $contact->name }}" onclick="deleteSingleContact(this)" class="text-red-600 hover:text-red-900 font-semibold text-xs">
                                                         Hapus
                                                     </button>
                                                 </div>
@@ -216,7 +230,7 @@
                                             <td colspan="{{ auth()->user()->isSuperadmin() ? 6 : 5 }}" class="px-6 py-12 text-center text-sm text-gray-400 bg-gray-50">
                                                 <svg class="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
                                                 <p class="font-medium text-gray-600">Belum ada kontak tersimpan</p>
-                                                <p class="text-xs text-gray-400 mt-1">Gunakan tombol "Tambah Kontak Manual", import file CSV, atau sinkronkan dari tab Kontak WhatsApp.</p>
+                                                <p class="text-xs text-gray-400 mt-1">Gunakan tombol "Tambah Kontak Manual", import file Excel (.xls), atau sinkronkan dari tab Kontak WhatsApp.</p>
                                             </td>
                                         </tr>
                                     @endforelse
@@ -702,6 +716,33 @@
                 checkBulkDeleteStatus();
                 checkBulkWaStatus();
             }
+
+            window.deleteSingleContact = function(btn) {
+                const url = btn.dataset.url;
+                const name = btn.dataset.name || 'kontak ini';
+                if (!confirm('Apakah Anda yakin ingin menghapus kontak "' + name + '"?')) {
+                    return;
+                }
+
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = url;
+
+                const csrf = document.createElement('input');
+                csrf.type = 'hidden';
+                csrf.name = '_token';
+                csrf.value = '{{ csrf_token() }}';
+                form.appendChild(csrf);
+
+                const method = document.createElement('input');
+                method.type = 'hidden';
+                method.name = '_method';
+                method.value = 'DELETE';
+                form.appendChild(method);
+
+                document.body.appendChild(form);
+                form.submit();
+            };
         })();
     </script>
 </x-app-layout>

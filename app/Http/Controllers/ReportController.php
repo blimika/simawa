@@ -7,6 +7,7 @@ use App\Models\Ticket;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class ReportController extends Controller
@@ -21,7 +22,7 @@ class ReportController extends Controller
 
         // 1. Dapatkan Ruang Lingkup Device & Agen Berdasarkan Hak Akses Peran
         $devicesQuery = Device::query();
-        $agentsQuery = User::where('role', 'agent');
+        $agentsQuery = User::where('role', 'agent')->withCount('handledDevices');
 
         if ($user->isSuperadmin()) {
             // Superadmin dapat melihat semua device dan semua agen
@@ -137,7 +138,7 @@ class ReportController extends Controller
         ];
 
         // 5. DATA PERFORMA PER AGEN (TAB 1)
-        $agentReports = collect();
+        $allAgentReports = collect();
         if ($agentsList->isNotEmpty()) {
             // Bangun subquery agregasi tiket untuk agen
             $ticketSubquery = Ticket::query();
@@ -165,7 +166,7 @@ class ReportController extends Controller
                 ->keyBy('agent_id');
 
             // Susun data performa agen
-            $agentReports = $agentsList->map(function ($agent) use ($ticketStats) {
+            $allAgentReports = $agentsList->map(function ($agent) use ($ticketStats) {
                 $stat = $ticketStats->get($agent->id);
                 $handled = $stat ? (int) $stat->total_handled : 0;
                 $open = $stat ? (int) $stat->open_count : 0;
@@ -178,17 +179,62 @@ class ReportController extends Controller
                     'username'        => $agent->username,
                     'email'           => $agent->email,
                     'is_active'       => $agent->is_active,
-                    'devices_count'   => $agent->handledDevices()->count(),
+                    'devices_count'   => (int) ($agent->handled_devices_count ?? 0),
                     'total_handled'   => $handled,
                     'open_count'      => $open,
                     'closed_count'    => $closed,
                     'completion_rate' => $rate,
                 ];
+            })->sort(function ($a, $b) {
+                if ($a->total_handled !== $b->total_handled) {
+                    return $b->total_handled <=> $a->total_handled;
+                }
+                if ($a->completion_rate !== $b->completion_rate) {
+                    return $b->completion_rate <=> $a->completion_rate;
+                }
+                return strcmp($a->name, $b->name);
+            })->values()->map(function ($item, $idx) {
+                $item->rank = $idx + 1;
+                return $item;
             });
-
-            // Urutkan berdasarkan total tiket terbanyak, lalu persentase selesai tertinggi
-            $agentReports = $agentReports->sortByDesc('total_handled')->values();
         }
+
+        $totalAgentsCount = $allAgentReports->count();
+        $topAgents = $allAgentReports->take(3);
+
+        // Terapkan filter agen / pencarian pada daftar performa agen agar mudah menelusuri bila > 20 agen
+        $filteredAgentReports = $allAgentReports;
+        if ($request->filled('agent_id') && $request->agent_id !== 'unassigned') {
+            $filteredAgentReports = $filteredAgentReports->where('id', (int) $request->agent_id)->values();
+        }
+        if ($tab === 'agents' && $request->filled('search')) {
+            $agentSearch = trim($request->search);
+            $filteredAgentReports = $filteredAgentReports->filter(function ($item) use ($agentSearch) {
+                return stripos($item->name, $agentSearch) !== false
+                    || stripos($item->username, $agentSearch) !== false
+                    || stripos($item->email, $agentSearch) !== false;
+            })->values();
+        }
+
+        $perPageAllowed = [10, 15, 25, 50];
+        $perPage = (int) $request->input('per_page', 15);
+        if (!in_array($perPage, $perPageAllowed, true)) {
+            $perPage = 15;
+        }
+
+        $agentPage = max(1, (int) $request->input('agent_page', LengthAwarePaginator::resolveCurrentPage('agent_page')));
+        $agentSlice = $filteredAgentReports->slice(($agentPage - 1) * $perPage, $perPage)->values();
+        $agentReports = new LengthAwarePaginator(
+            $agentSlice,
+            $filteredAgentReports->count(),
+            $perPage,
+            $agentPage,
+            [
+                'path' => LengthAwarePaginator::resolveCurrentPath(),
+                'pageName' => 'agent_page',
+                'query' => $request->query(),
+            ]
+        );
 
         // 6. DATA RINCIAN TIKET (TAB 2)
         $tickets = collect();
@@ -261,6 +307,9 @@ class ReportController extends Controller
         return view('reports.index', compact(
             'summary',
             'agentReports',
+            'topAgents',
+            'totalAgentsCount',
+            'perPage',
             'tickets',
             'tagDistribution',
             'deviceDistribution',

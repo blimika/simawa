@@ -124,7 +124,8 @@
                             $tagClass = $tagColors[$currentTag] ?? $tagColors['umum'];
                         @endphp
 
-                        <a href="{{ route('messages.index', array_filter(['ticket_id' => $t->id, 'tab' => $currentTab, 'search' => request('search')])) }}" 
+                        <a id="ticket-item-{{ $t->id }}"
+                           href="{{ route('messages.index', array_filter(['ticket_id' => $t->id, 'tab' => $currentTab, 'search' => request('search')])) }}" 
                            class="block p-3.5 hover:bg-gray-100/80 transition {{ request('ticket_id') == $t->id ? 'bg-indigo-50/70 border-l-4 border-indigo-500 shadow-sm' : '' }} {{ $t->status === 'closed' ? 'bg-emerald-50/20' : '' }}">
                             <div class="flex items-start gap-3">
                                 {{-- Avatar Kontak di Sidebar --}}
@@ -214,6 +215,22 @@
                                 </div>
                             @endforelse
                         </div>
+                        <script>
+                            (function() {
+                                var sidebarEl = document.getElementById('sidebar-list');
+                                if (!sidebarEl) return;
+                                var savedScroll = sessionStorage.getItem('simawa_livechat_sidebar_scroll');
+                                if (savedScroll !== null) {
+                                    sidebarEl.scrollTop = parseInt(savedScroll, 10) || 0;
+                                } else {
+                                    var activeTicketId = @json(request('ticket_id'));
+                                    if (activeTicketId) {
+                                        var activeItem = document.getElementById('ticket-item-' + activeTicketId);
+                                        if (activeItem) activeItem.scrollIntoView({ block: 'nearest' });
+                                    }
+                                }
+                            })();
+                        </script>
                     </div>
 
                     {{-- ======================================================== --}}
@@ -890,8 +907,47 @@
             document.getElementById('addContactModal').classList.add('hidden');
         }
 
-        // --- AUTO SCROLL & SILENT LIVE REFRESH POLLING ---
+        // --- AUTO SCROLL, PRESERVASI POSISI LIST KIRI & SILENT LIVE REFRESH POLLING ---
         document.addEventListener('DOMContentLoaded', function() {
+            const SIDEBAR_SCROLL_KEY = 'simawa_livechat_sidebar_scroll';
+            let sidebar = document.getElementById('sidebar-list');
+            let sidebarTabs = document.getElementById('sidebar-tabs');
+            let resetSidebarScrollOnUnload = false;
+
+            if (sidebar) {
+                let savedScroll = sessionStorage.getItem(SIDEBAR_SCROLL_KEY);
+                if (savedScroll !== null) {
+                    let targetScroll = parseInt(savedScroll, 10) || 0;
+                    sidebar.scrollTop = targetScroll;
+                    requestAnimationFrame(() => {
+                        sidebar.scrollTop = targetScroll;
+                    });
+                }
+
+                sidebar.addEventListener('scroll', function() {
+                    sessionStorage.setItem(SIDEBAR_SCROLL_KEY, String(sidebar.scrollTop));
+                }, { passive: true });
+
+                sidebar.addEventListener('click', function() {
+                    sessionStorage.setItem(SIDEBAR_SCROLL_KEY, String(sidebar.scrollTop));
+                });
+            }
+
+            if (sidebarTabs) {
+                sidebarTabs.addEventListener('click', function(e) {
+                    if (e.target.closest('a')) {
+                        resetSidebarScrollOnUnload = true;
+                        sessionStorage.setItem(SIDEBAR_SCROLL_KEY, '0');
+                    }
+                });
+            }
+
+            window.addEventListener('beforeunload', function() {
+                if (sidebar && !resetSidebarScrollOnUnload) {
+                    sessionStorage.setItem(SIDEBAR_SCROLL_KEY, String(sidebar.scrollTop));
+                }
+            });
+
             let chatBox = document.getElementById('chat-messages');
             if(chatBox) chatBox.scrollTop = chatBox.scrollHeight;
 
@@ -903,17 +959,21 @@
                 .then(html => {
                     let doc = new DOMParser().parseFromString(html, 'text/html');
 
-                    // Update sidebar silently
+                    // Update sidebar silently sambil mempertahankan posisi scroll list kiri
                     let newSidebar = doc.getElementById('sidebar-list');
                     let oldSidebar = document.getElementById('sidebar-list');
                     if (newSidebar && oldSidebar) {
-                        oldSidebar.innerHTML = newSidebar.innerHTML;
+                        let prevScroll = oldSidebar.scrollTop;
+                        if (oldSidebar.innerHTML !== newSidebar.innerHTML) {
+                            oldSidebar.innerHTML = newSidebar.innerHTML;
+                        }
+                        oldSidebar.scrollTop = prevScroll;
                     }
 
                     // Update sidebar tabs & counter badges silently
                     let newTabs = doc.getElementById('sidebar-tabs');
                     let oldTabs = document.getElementById('sidebar-tabs');
-                    if (newTabs && oldTabs) {
+                    if (newTabs && oldTabs && oldTabs.innerHTML !== newTabs.innerHTML) {
                         oldTabs.innerHTML = newTabs.innerHTML;
                     }
 

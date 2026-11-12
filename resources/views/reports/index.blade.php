@@ -238,14 +238,19 @@
 
                         {{-- Pencarian Kata Kunci --}}
                         <div :class="customDate ? 'lg:col-span-4' : 'lg:col-span-10'">
-                            <label class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Cari Nomor Tiket / Pelanggan</label>
+                            <label class="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Cari Agen / Nomor Tiket / Pelanggan</label>
                             <div class="relative">
                                 <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                                 </span>
-                                <input type="text" name="search" value="{{ request('search') }}" placeholder="Contoh: LYN-260518-..., 62812..., Budi" class="w-full pl-9 pr-3 py-2 text-sm border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 shadow-sm">
+                                <input type="text" name="search" value="{{ request('search') }}" placeholder="Contoh: Nama agen, LYN-260518-..., 62812..., Budi" class="w-full pl-9 pr-3 py-2 text-sm border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 shadow-sm">
                             </div>
                         </div>
+
+                        {{-- Simpan pilihan per_page saat menerapkan filter --}}
+                        @if(request('per_page'))
+                            <input type="hidden" name="per_page" value="{{ request('per_page') }}">
+                        @endif
 
                         {{-- Tombol Submit Filter --}}
                         <div class="lg:col-span-2 flex items-end gap-2">
@@ -269,7 +274,7 @@
                    class="pb-3 px-4 text-sm font-bold border-b-2 transition flex items-center gap-2 {{ $tab === 'agents' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700' }}">
                     <span>👥 Performa Agen</span>
                     <span class="px-2 py-0.5 rounded-full text-xs font-semibold {{ $tab === 'agents' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600' }}">
-                        {{ $agentReports->count() }} Agen
+                        {{ $totalAgentsCount }} Agen
                     </span>
                 </a>
 
@@ -292,16 +297,16 @@
             {{-- ========================================================== --}}
             @if($tab === 'agents')
                 {{-- Highlight Leaderboard Top 3 Agen --}}
-                @if($agentReports->isNotEmpty() && $agentReports->first()->total_handled > 0)
+                @if($topAgents->isNotEmpty() && $topAgents->first()->total_handled > 0)
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        @foreach($agentReports->take(3) as $index => $topAgent)
+                        @foreach($topAgents as $index => $topAgent)
                             @if($topAgent->total_handled > 0)
                                 <div class="bg-white rounded-xl p-5 border shadow-sm relative overflow-hidden {{ $index === 0 ? 'border-amber-200 bg-gradient-to-br from-amber-50/40 via-white to-white' : 'border-gray-100' }}">
                                     <div class="flex items-center justify-between">
                                         <div class="flex items-center gap-3">
                                             <div class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm uppercase shadow-sm
                                                 {{ $index === 0 ? 'bg-amber-100 text-amber-800 border-2 border-amber-300' : ($index === 1 ? 'bg-slate-200 text-slate-800 border-2 border-slate-300' : 'bg-orange-100 text-orange-800 border-2 border-orange-300') }}">
-                                                {{ substr($topAgent->name, 0, 2) }}
+                                                {{ strtoupper(substr($topAgent->name, 0, 2)) }}
                                             </div>
                                             <div>
                                                 <div class="font-bold text-gray-900 text-sm flex items-center gap-1.5">
@@ -338,15 +343,30 @@
                     </div>
                 @endif
 
-                {{-- Tabel Performa Agen Lengkap --}}
+                {{-- Tabel Performa Agen Lengkap (Dipaginasi agar tetap ringkas meski agen > 20) --}}
                 <div class="bg-white shadow-sm rounded-xl border border-gray-100 overflow-hidden">
-                    <div class="p-6 border-b border-gray-100 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div class="p-5 sm:p-6 border-b border-gray-100 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div>
                             <h3 class="text-base font-bold text-gray-800">Tabel Rincian Performa &amp; Produktivitas Agen</h3>
                             <p class="text-xs text-gray-400 mt-0.5">Akumulasi tiket yang dihitung berdasarkan filter rentang tanggal dan device aktif.</p>
                         </div>
-                        <div class="text-xs text-gray-400">
-                            Total: <b>{{ $agentReports->count() }}</b> Agen Terdaftar
+                        <div class="flex flex-wrap items-center gap-3">
+                            <form method="GET" action="{{ route('reports.index') }}" class="flex items-center gap-2 print:hidden">
+                                @foreach(request()->except(['per_page', 'agent_page']) as $qKey => $qVal)
+                                    @if(!is_array($qVal) && $qVal !== null && $qVal !== '')
+                                        <input type="hidden" name="{{ $qKey }}" value="{{ $qVal }}">
+                                    @endif
+                                @endforeach
+                                <label class="text-xs text-gray-500 font-medium">Tampilkan:</label>
+                                <select name="per_page" onchange="this.form.submit()" class="text-xs border-gray-300 rounded-lg py-1.5 pl-2.5 pr-7 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm font-semibold text-gray-700">
+                                    @foreach([10, 15, 25, 50] as $optPerPage)
+                                        <option value="{{ $optPerPage }}" {{ $perPage === $optPerPage ? 'selected' : '' }}>{{ $optPerPage }} / hal</option>
+                                    @endforeach
+                                </select>
+                            </form>
+                            <div class="text-xs text-gray-500">
+                                Menampilkan <b>{{ $agentReports->firstItem() ?? 0 }}–{{ $agentReports->lastItem() ?? 0 }}</b> dari <b>{{ $agentReports->total() }}</b> Agen
+                            </div>
                         </div>
                     </div>
 
@@ -354,38 +374,41 @@
                         <table class="w-full text-left border-collapse">
                             <thead>
                                 <tr class="bg-gray-50/80 text-gray-600 uppercase text-xs font-semibold tracking-wider border-b border-gray-200">
-                                    <th class="py-3.5 px-6 text-center w-14">Rank</th>
-                                    <th class="py-3.5 px-6">Agen Petugas</th>
-                                    <th class="py-3.5 px-6 text-center">Status Akun</th>
-                                    <th class="py-3.5 px-6 text-center">Device Handled</th>
-                                    <th class="py-3.5 px-6 text-center">Total Handled</th>
-                                    <th class="py-3.5 px-6 text-center">Tiket Open</th>
-                                    <th class="py-3.5 px-6 text-center">Tiket Closed</th>
-                                    <th class="py-3.5 px-6 text-left">Rasio Penyelesaian (CR)</th>
-                                    <th class="py-3.5 px-6 text-center print:hidden">Aksi</th>
+                                    <th class="py-3 px-5 text-center w-14">Rank</th>
+                                    <th class="py-3 px-5">Agen Petugas</th>
+                                    <th class="py-3 px-5 text-center">Status Akun</th>
+                                    <th class="py-3 px-5 text-center">Device Handled</th>
+                                    <th class="py-3 px-5 text-center">Total Handled</th>
+                                    <th class="py-3 px-5 text-center">Tiket Open</th>
+                                    <th class="py-3 px-5 text-center">Tiket Closed</th>
+                                    <th class="py-3 px-5 text-left">Rasio Penyelesaian (CR)</th>
+                                    <th class="py-3 px-5 text-center print:hidden">Aksi</th>
                                 </tr>
                             </thead>
                             <tbody class="text-gray-600 text-sm divide-y divide-gray-100">
                                 @forelse($agentReports as $index => $report)
+                                    @php
+                                        $rank = $report->rank ?? (($agentReports->currentPage() - 1) * $agentReports->perPage() + $index + 1);
+                                    @endphp
                                     <tr class="hover:bg-gray-50/70 transition">
                                         {{-- Rank --}}
-                                        <td class="py-4 px-6 whitespace-nowrap text-center font-bold text-xs text-gray-400">
-                                            @if($index === 0 && $report->total_handled > 0)
-                                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-800 font-extrabold text-xs shadow-xs">1</span>
-                                            @elseif($index === 1 && $report->total_handled > 0)
-                                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-200 text-slate-800 font-extrabold text-xs shadow-xs">2</span>
-                                            @elseif($index === 2 && $report->total_handled > 0)
-                                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-orange-100 text-orange-800 font-extrabold text-xs shadow-xs">3</span>
+                                        <td class="py-3 px-5 whitespace-nowrap text-center font-bold text-xs text-gray-400">
+                                            @if($rank === 1 && $report->total_handled > 0)
+                                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-800 font-extrabold text-xs shadow-sm">1</span>
+                                            @elseif($rank === 2 && $report->total_handled > 0)
+                                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-200 text-slate-800 font-extrabold text-xs shadow-sm">2</span>
+                                            @elseif($rank === 3 && $report->total_handled > 0)
+                                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-orange-100 text-orange-800 font-extrabold text-xs shadow-sm">3</span>
                                             @else
-                                                #{{ $index + 1 }}
+                                                #{{ $rank }}
                                             @endif
                                         </td>
 
                                         {{-- Nama Agen --}}
-                                        <td class="py-4 px-6 whitespace-nowrap">
+                                        <td class="py-3 px-5 whitespace-nowrap">
                                             <div class="flex items-center gap-3">
-                                                <div class="w-9 h-9 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs uppercase shadow-sm">
-                                                    {{ substr($report->name, 0, 2) }}
+                                                <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs uppercase shadow-sm">
+                                                    {{ strtoupper(substr($report->name, 0, 2)) }}
                                                 </div>
                                                 <div>
                                                     <div class="text-sm font-bold text-gray-900">{{ $report->name }}</div>
@@ -395,7 +418,7 @@
                                         </td>
 
                                         {{-- Status Akun --}}
-                                        <td class="py-4 px-6 whitespace-nowrap text-center">
+                                        <td class="py-3 px-5 whitespace-nowrap text-center">
                                             @if($report->is_active)
                                                 <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                                     <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -409,31 +432,31 @@
                                         </td>
 
                                         {{-- Device Handled --}}
-                                        <td class="py-4 px-6 whitespace-nowrap text-center text-xs font-semibold text-gray-700">
+                                        <td class="py-3 px-5 whitespace-nowrap text-center text-xs font-semibold text-gray-700">
                                             {{ $report->devices_count }} Device
                                         </td>
 
                                         {{-- Total Handled --}}
-                                        <td class="py-4 px-6 whitespace-nowrap text-sm font-extrabold text-center text-gray-900">
+                                        <td class="py-3 px-5 whitespace-nowrap text-sm font-extrabold text-center text-gray-900">
                                             {{ number_format($report->total_handled) }}
                                         </td>
 
                                         {{-- Tiket Open --}}
-                                        <td class="py-4 px-6 whitespace-nowrap text-center">
+                                        <td class="py-3 px-5 whitespace-nowrap text-center">
                                             <span class="px-2.5 py-1 text-xs font-semibold text-amber-700 bg-amber-50 rounded-full border border-amber-200">
                                                 {{ $report->open_count }} Tiket
                                             </span>
                                         </td>
 
                                         {{-- Tiket Closed --}}
-                                        <td class="py-4 px-6 whitespace-nowrap text-center">
+                                        <td class="py-3 px-5 whitespace-nowrap text-center">
                                             <span class="px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 rounded-full border border-emerald-200">
                                                 {{ $report->closed_count }} Tiket
                                             </span>
                                         </td>
 
                                         {{-- Rasio Penyelesaian (CR) --}}
-                                        <td class="py-4 px-6 whitespace-nowrap w-48">
+                                        <td class="py-3 px-5 whitespace-nowrap w-48">
                                             <div class="flex items-center gap-2">
                                                 <span class="text-xs font-bold text-gray-700 w-11 text-right">{{ $report->completion_rate }}%</span>
                                                 <div class="w-full bg-gray-100 rounded-full h-2">
@@ -443,10 +466,10 @@
                                         </td>
 
                                         {{-- Aksi Lihat Detail Agen Modal --}}
-                                        <td class="py-4 px-6 whitespace-nowrap text-center print:hidden">
+                                        <td class="py-3 px-5 whitespace-nowrap text-center print:hidden">
                                             <button type="button" 
                                                     @click="openAgentModal({{ $report->id }})" 
-                                                    class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 hover:bg-indigo-50 text-gray-700 hover:text-indigo-600 border border-gray-200 transition shadow-xs">
+                                                    class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 hover:bg-indigo-50 text-gray-700 hover:text-indigo-600 border border-gray-200 transition shadow-sm">
                                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
                                                 <span>Detail</span>
                                             </button>
@@ -455,13 +478,19 @@
                                 @empty
                                     <tr>
                                         <td colspan="9" class="py-12 px-6 text-center text-gray-400 italic">
-                                            Belum ada data agen terdaftar pada ruang lingkup Anda saat ini.
+                                            Tidak ditemukan data agen yang sesuai dengan filter saat ini.
                                         </td>
                                     </tr>
                                 @endforelse
                             </tbody>
                         </table>
                     </div>
+
+                    @if(method_exists($agentReports, 'links') && $agentReports->hasPages())
+                        <div class="p-4 border-t border-gray-100 bg-white print:hidden">
+                            {{ $agentReports->links() }}
+                        </div>
+                    @endif
                 </div>
             @endif
 
@@ -633,7 +662,7 @@
                             </span>
                         </div>
 
-                        <div class="space-y-4 mt-6">
+                        <div class="space-y-4 mt-6 max-h-96 overflow-y-auto pr-1">
                             @forelse($tagDistribution as $tagItem)
                                 @php
                                     $tagNameLower = strtolower($tagItem->name);
@@ -673,7 +702,7 @@
                             </span>
                         </div>
 
-                        <div class="space-y-4 mt-6">
+                        <div class="space-y-4 mt-6 max-h-96 overflow-y-auto pr-1">
                             @forelse($deviceDistribution as $devItem)
                                 <div>
                                     <div class="flex items-center justify-between text-xs font-semibold mb-1.5">

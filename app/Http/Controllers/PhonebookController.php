@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Phonebook;
 use App\Models\Device;
+use App\Services\ExcelSpreadsheetService;
 use App\Services\GowaService;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -232,6 +233,11 @@ class PhonebookController extends Controller
         ]);
 
         $phonebook = Phonebook::findOrFail($id);
+        $user = auth()->user();
+
+        if (!$user->isSuperadmin() && $phonebook->user_id !== $user->getOwnerId()) {
+            return redirect()->route('phonebook.index')->with('error', 'Akses ditolak.');
+        }
 
         // 1. Bersihkan karakter non-angka
         $cleanNumber = preg_replace('/[^0-9]/', '', $request->number);
@@ -251,55 +257,100 @@ class PhonebookController extends Controller
         // 4. DIUBAH DI SINI: Alihkan ke halaman index dengan membawa notifikasi sukses
         return redirect()->route('phonebook.index')->with('success', 'Data kontak berhasil diperbarui!');
     }
+
     /**
-     * FUNGSI IMPORT CSV EXCEL KE PHONEBOOK
+     * FUNGSI IMPORT EXCEL (.XLS SAJA) KE PHONEBOOK
      */
-    public function import(Request $request)
+    public function import(Request $request, ExcelSpreadsheetService $excel)
     {
         $request->validate([
-            'file' => 'required|mimes:csv,txt|max:2048',
+            'file' => [
+                'required',
+                'file',
+                'max:5120',
+                function ($attribute, $value, $fail) {
+                    if (strtolower($value->getClientOriginalExtension()) !== 'xls') {
+                        $fail('File harus berformat .xls.');
+                    }
+                },
+            ],
         ]);
 
         $file = $request->file('file');
-        $fileHandle = fopen($file->getRealPath(), 'r');
+        try {
+            $rows = $excel->parseRows($file->getRealPath(), 'xls', true);
+        } catch (\Throwable $e) {
+            return back()->with('error', 'Gagal membaca file Excel .xls: ' . $e->getMessage());
+        }
 
-        // Lewati baris pertama (Header)
-        $header = fgetcsv($fileHandle);
+        if (empty($rows)) {
+            return back()->with('error', 'File Excel .xls kosong atau tidak memiliki baris data.');
+        }
+
+        // Lewati baris pertama jika berisi header judul kolom
+        $firstRowText = strtolower(implode(' ', $rows[0] ?? []));
+        if (
+            str_contains($firstRowText, 'nama') ||
+            str_contains($firstRowText, 'nomor') ||
+            str_contains($firstRowText, 'whatsapp') ||
+            str_contains($firstRowText, 'kategori')
+        ) {
+            array_shift($rows);
+        }
+
+        if (empty($rows)) {
+            return back()->with('error', 'Tidak ditemukan baris data kontak di dalam file Excel.');
+        }
 
         $importedCount = 0;
+        $skippedCount = 0;
         $ownerId = auth()->user()->getOwnerId();
 
-        while (($row = fgetcsv($fileHandle)) !== false) {
-            $name = $row[0] ?? 'Tanpa Nama';
-            $number = $row[1] ?? '';
-            // AMBIL DATA KATEGORI DARI KOLOM KE-3 (INDEX 2)
-            $category = !empty($row[2]) ? trim($row[2]) : null;
+        foreach ($rows as $row) {
+            $rawName = trim((string) ($row[0] ?? ''));
+            $rawNumber = trim((string) ($row[1] ?? ''));
+            $category = !empty($row[2]) ? trim((string) $row[2]) : null;
 
-            if (empty($number)) continue;
+            if ($rawNumber === '') {
+                continue;
+            }
 
-            $cleanNumber = preg_replace('/[^0-9]/', '', $number);
+            $cleanNumber = preg_replace('/[^0-9]/', '', $rawNumber);
             if (str_starts_with($cleanNumber, '0')) {
                 $cleanNumber = '62' . substr($cleanNumber, 1);
             }
 
-            // Simpan data beserta kategorinya
-            \App\Models\Phonebook::updateOrCreate(
+            if (strlen($cleanNumber) < 6) {
+                $skippedCount++;
+                continue;
+            }
+
+            $name = $rawName !== '' ? $rawName : 'Tanpa Nama';
+
+            Phonebook::updateOrCreate(
                 [
                     'number' => $cleanNumber,
-                    'user_id' => $ownerId
+                    'user_id' => $ownerId,
                 ],
                 [
                     'name' => $name,
-                    'category' => $category // Menggunakan kategori dari file Excel
+                    'category' => $category,
                 ]
             );
 
             $importedCount++;
         }
 
-        fclose($fileHandle);
+        if ($importedCount === 0) {
+            return back()->with('error', 'Tidak ada kontak valid yang berhasil diimpor dari file .xls.');
+        }
 
-        return back()->with('success', "Berhasil mengimpor $importedCount kontak ke Buku Telepon.");
+        $message = "Berhasil mengimpor {$importedCount} kontak dari file .xls ke Buku Telepon.";
+        if ($skippedCount > 0) {
+            $message .= " ({$skippedCount} baris dilewati karena nomor tidak valid.)";
+        }
+
+        return back()->with('success', $message);
     }
 
     /**
@@ -309,20 +360,27 @@ class PhonebookController extends Controller
     {
         $request->validate([
             'ids' => 'required|array',
-            'ids.*' => 'exists:phonebooks,id' // Pastikan nama tabel database sesuai (biasanya phonebooks)
+            'ids.*' => 'exists:phonebooks,id',
         ]);
 
-        Phonebook::whereIn('id', $request->ids)->delete();
+        $user = auth()->user();
+        $query = Phonebook::whereIn('id', $request->ids);
+        if (!$user->isSuperadmin()) {
+            $query->where('user_id', $user->getOwnerId());
+        }
 
-        return back()->with('success', count($request->ids) . ' kontak berhasil dihapus sekaligus.');
+        $deletedCount = $query->delete();
+
+        return back()->with('success', "{$deletedCount} kontak berhasil dihapus sekaligus.");
     }
+
     /**
      * MENAMPILKAN HALAMAN EDIT KONTAK
      */
     public function edit($id)
     {
         // Cari data kontak berdasarkan ID
-        $phonebook = \App\Models\Phonebook::findOrFail($id);
+        $phonebook = Phonebook::findOrFail($id);
 
         // Proteksi: Pastikan hanya pemiliknya (atau Superadmin) yang bisa mengedit
         $user = auth()->user();
@@ -331,7 +389,7 @@ class PhonebookController extends Controller
         }
 
         // Ambil daftar kategori unik untuk pilihan dropdown di form edit
-        $categories = \App\Models\Phonebook::where('user_id', $user->getOwnerId())
+        $categories = Phonebook::where('user_id', $user->getOwnerId())
                         ->whereNotNull('category')
                         ->distinct()
                         ->pluck('category');
@@ -339,35 +397,27 @@ class PhonebookController extends Controller
         // Arahkan ke file resources/views/phonebook/edit.blade.php
         return view('phonebook.edit', compact('phonebook', 'categories'));
     }
+
     /**
-     * MENGUNDUH TEMPLATE CSV UNTUK IMPORT KONTAK
+     * MENGUNDUH TEMPLATE EXCEL (.XLS) UNTUK IMPORT KONTAK
      */
-    public function downloadTemplate()
+    public function downloadTemplate(ExcelSpreadsheetService $excel)
     {
-        $headers = [
-            'Content-type'        => 'text/csv',
-            'Content-Disposition' => 'attachment; filename=template_import_kontak.csv',
-            'Pragma'              => 'no-cache',
-            'Cache-Control'       => 'must-revalidate, post-check=0, pre-check=0',
-            'Expires'             => '0',
+        $rows = [
+            ['Nama Kontak', 'Nomor WhatsApp', 'Kategori'],
+            ['Budi Santoso', '081234567890', 'Pelanggan BPS'],
+            ['Siti Aminah', '628987654321', 'Keluarga'],
         ];
 
-        // TAMBAHKAN KATEGORI DI HEADER EXCEL
-        $columns = ['Nama Kontak', 'Nomor WhatsApp', 'Kategori'];
+        $binary = $excel->generateBiff8Xls($rows, 'Template Kontak');
 
-        $callback = function() use($columns) {
-            $file = fopen('php://output', 'w');
-
-            fputcsv($file, $columns);
-
-            // Masukkan Data Contoh dengan Kategori
-            fputcsv($file, ['Budi Santoso', '081234567890', 'Pelanggan BPS']);
-            fputcsv($file, ['Siti Aminah', '628987654321', 'Keluarga']);
-
-            fclose($file);
-        };
-
-        return response()->stream($callback, 200, $headers);
+        return response($binary, 200, [
+            'Content-Type'        => 'application/vnd.ms-excel',
+            'Content-Disposition' => 'attachment; filename="template_import_kontak.xls"',
+            'Pragma'              => 'public',
+            'Cache-Control'       => 'must-revalidate, post-check=0, pre-check=0',
+            'Expires'             => '0',
+        ]);
     }
 
     /**
